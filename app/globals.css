@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0A0A0A;
+  --bg-elevated: #141414;
+  --fg: #F4F1EB;
+  --fg-muted: #8A8680;
+  --border: #1E1E1E;
+  --amber: #D4A574;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::selection {
+  background: #D4A574;
+  color: #0A0A0A;
+}
+
+.grain-overlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  z-index: 100;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Editorial label */
+.label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #8A8680;
+  font-weight: 500;
+}
+
+.label-amber {
+  color: #D4A574;
+}
+
+/* Hairline divider */
+.hairline {
+  height: 1px;
+  background: #1E1E1E;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0A0A0A;
+}
+::-webkit-scrollbar-thumb {
+  background: #2A2A2A;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3A3A3A;
+}
+
+/* Checkbox — editorial square */
+.check-square {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #3A3A3A;
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.check-square[data-checked="true"] {
+  background: #D4A574;
+  border-color: #D4A574;
+}
+.check-square[data-checked="true"]::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 1px;
+  width: 5px;
+  height: 10px;
+  border: solid #0A0A0A;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Vehicle card image treatment */
+.card-image {
+  filter: saturate(0.92) contrast(1.02);
+  transition: all 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card-image-wrap:hover .card-image {
+  transform: scale(1.04);
+  filter: saturate(1) contrast(1.05);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: 1px solid #D4A574;
+  outline-offset: 2px;
+}
+
+/* Number tabular */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Marquee wrapper */
+.marquee-wrap {
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+
+/* Vehicle detail hero gradient */
+.hero-fade {
+  background: linear-gradient(180deg, transparent 0%, rgba(10, 10, 10, 0.3) 60%, #0A0A0A 100%);
+}
+
+/* Input base */
+.input-base {
+  background: transparent;
+  border: 1px solid #1E1E1E;
+  color: #F4F1EB;
+  padding: 12px 14px;
+  transition: border-color 0.2s ease;
+  width: 100%;
+}
+.input-base:focus {
+  border-color: #D4A574;
+  outline: none;
+}
+.input-base::placeholder {
+  color: #5C5954;
+}
+
+/* Paper texture for agreement */
+.paper {
+  background: #F4F1EB;
+  color: #1A1A1A;
+  position: relative;
+  overflow: hidden;
+}
+.paper::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.07;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E");
+}
+
+@keyframes pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 165, 116, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(212, 165, 116, 0); }
+}
+.pulse-amber {
+  animation: pulse-amber 2s ease-in-out infinite;
+}
