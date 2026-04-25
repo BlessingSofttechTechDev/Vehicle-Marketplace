@@ -24,7 +24,7 @@ interface AcquisitionsStore {
   forEmail: (email: string) => Acquisition[];
 }
 
-export const ADMIN_EMAILS = ["techdev@blessingsofttech.com", "admin@meridian.in"];
+export const ADMIN_EMAILS = ["admin@meridian.com"];
 
 export function isAdmin(email: string | undefined | null): boolean {
   if (!email) return false;

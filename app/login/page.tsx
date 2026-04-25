@@ -2,20 +2,17 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-
-type Mode = "signin" | "signup";
 
 function LoginInner() {
   const router = useRouter();
   const search = useSearchParams();
   const next = search.get("next") || "/";
-  const { login, register, currentUser } = useAuth();
+  const { login, currentUser } = useAuth();
 
-  const [mode, setMode] = useState<Mode>("signin");
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,10 +26,7 @@ function LoginInner() {
     setError(null);
     setLoading(true);
     setTimeout(() => {
-      const result =
-        mode === "signin"
-          ? login(form.email, form.password)
-          : register(form.name, form.email, form.password);
+      const result = login(form.email, form.password);
       if (!result.ok) {
         setError(result.error);
         setLoading(false);
@@ -100,165 +94,89 @@ function LoginInner() {
 
         <div className="flex flex-1 items-center justify-center px-6 py-12 md:px-10">
           <div className="w-full max-w-md">
-            {/* Mode toggle */}
-            <div className="mb-10 flex items-center border border-ink-500">
-              {(["signin", "signup"] as Mode[]).map((m) => (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <p className="label-amber label">Welcome back</p>
+              <h2 className="mt-3 font-display text-4xl font-light leading-tight text-bone-100 md:text-5xl">
+                Enter the <span className="italic">marketplace</span>.
+              </h2>
+
+              <form onSubmit={onSubmit} className="mt-8 space-y-5">
+                <Field
+                  label="Email"
+                  value={form.email}
+                  onChange={(v) => setForm({ ...form, email: v })}
+                  placeholder="you@example.com"
+                  type="email"
+                  autoComplete="email"
+                />
+                <div>
+                  <label className="label mb-3 block">Password</label>
+                  <div className="relative">
+                    <input
+                      type={showPw ? "text" : "password"}
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      className="input-base pr-11 font-mono"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw(!showPw)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-bone-400 transition hover:text-amber"
+                      tabIndex={-1}
+                    >
+                      {showPw ? (
+                        <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+                      ) : (
+                        <Eye className="h-4 w-4" strokeWidth={1.5} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="border-l-2 border-signal-red bg-signal-red/5 px-4 py-3"
+                  >
+                    <p className="font-mono text-[11px] text-signal-red">{error}</p>
+                  </motion.div>
+                )}
+
                 <button
-                  key={m}
-                  onClick={() => {
-                    setMode(m);
-                    setError(null);
-                  }}
-                  className={`flex-1 py-3 font-mono text-[10px] uppercase tracking-wider transition ${
-                    mode === m
-                      ? "bg-amber text-ink-900"
-                      : "text-bone-300 hover:text-bone-100"
-                  }`}
+                  type="submit"
+                  disabled={loading}
+                  className="group mt-2 flex w-full items-center justify-center gap-3 bg-amber py-4 font-mono text-xs uppercase tracking-wider text-ink-900 transition enabled:hover:bg-amber-soft disabled:opacity-60"
                 >
-                  {m === "signin" ? "Sign in" : "Create account"}
-                </button>
-              ))}
-            </div>
-
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={mode}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-              >
-                <p className="label-amber label">
-                  {mode === "signin" ? "Welcome back" : "A new account"}
-                </p>
-                <h2 className="mt-3 font-display text-4xl font-light leading-tight text-bone-100 md:text-5xl">
-                  {mode === "signin" ? (
-                    <>
-                      Enter the <span className="italic">marketplace</span>.
-                    </>
-                  ) : (
-                    <>
-                      Begin, <span className="italic">briefly</span>.
-                    </>
-                  )}
-                </h2>
-
-                <form onSubmit={onSubmit} className="mt-8 space-y-5">
-                  {mode === "signup" && (
-                    <Field
-                      label="Full name"
-                      value={form.name}
-                      onChange={(v) => setForm({ ...form, name: v })}
-                      placeholder="As it appears on your licence"
-                      type="text"
+                  {loading ? "Signing in…" : "Sign in"}
+                  {!loading && (
+                    <ArrowRight
+                      className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
+                      strokeWidth={2}
                     />
                   )}
-                  <Field
-                    label="Email"
-                    value={form.email}
-                    onChange={(v) => setForm({ ...form, email: v })}
-                    placeholder="you@example.com"
-                    type="email"
-                    autoComplete="email"
-                  />
-                  <div>
-                    <label className="label mb-3 block">Password</label>
-                    <div className="relative">
-                      <input
-                        type={showPw ? "text" : "password"}
-                        value={form.password}
-                        onChange={(e) => setForm({ ...form, password: e.target.value })}
-                        placeholder={mode === "signup" ? "At least 6 characters" : "••••••••"}
-                        autoComplete={
-                          mode === "signup" ? "new-password" : "current-password"
-                        }
-                        className="input-base pr-11 font-mono"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPw(!showPw)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-bone-400 transition hover:text-amber"
-                        tabIndex={-1}
-                      >
-                        {showPw ? (
-                          <EyeOff className="h-4 w-4" strokeWidth={1.5} />
-                        ) : (
-                          <Eye className="h-4 w-4" strokeWidth={1.5} />
-                        )}
-                      </button>
-                    </div>
-                  </div>
+                </button>
+              </form>
 
-                  {error && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="border-l-2 border-signal-red bg-signal-red/5 px-4 py-3"
-                    >
-                      <p className="font-mono text-[11px] text-signal-red">{error}</p>
-                    </motion.div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="group mt-2 flex w-full items-center justify-center gap-3 bg-amber py-4 font-mono text-xs uppercase tracking-wider text-ink-900 transition enabled:hover:bg-amber-soft disabled:opacity-60"
-                  >
-                    {loading
-                      ? mode === "signin"
-                        ? "Signing in…"
-                        : "Creating account…"
-                      : mode === "signin"
-                        ? "Sign in"
-                        : "Create account"}
-                    {!loading && (
-                      <ArrowRight
-                        className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5"
-                        strokeWidth={2}
-                      />
-                    )}
-                  </button>
-
-                  <p className="pt-2 text-center font-mono text-[11px] text-bone-400">
-                    {mode === "signin" ? (
-                      <>
-                        No account yet?{" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMode("signup");
-                            setError(null);
-                          }}
-                          className="text-amber transition hover:text-amber-soft"
-                        >
-                          Create one
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        Already registered?{" "}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMode("signin");
-                            setError(null);
-                          }}
-                          className="text-amber transition hover:text-amber-soft"
-                        >
-                          Sign in
-                        </button>
-                      </>
-                    )}
+              <div className="mt-10 border-t border-ink-500 pt-6 space-y-3 text-center font-mono text-[10px] leading-relaxed text-bone-500">
+                <p>Demo access · use either set of credentials below.</p>
+                <div className="space-y-1 text-bone-300">
+                  <p>
+                    <span className="text-amber">Admin</span> · admin@meridian.com · meridian123
                   </p>
-                </form>
-
-                <p className="mt-10 border-t border-ink-500 pt-6 text-center font-mono text-[10px] leading-relaxed text-bone-500">
-                  Demo auth · accounts are stored locally in your browser. No server, no
-                  tracking, no real credentials required.
-                </p>
-              </motion.div>
-            </AnimatePresence>
+                  <p>
+                    <span className="text-amber">Customer</span> · customer@meridian.com · customer123
+                  </p>
+                </div>
+              </div>
+            </motion.div>
           </div>
         </div>
       </div>
