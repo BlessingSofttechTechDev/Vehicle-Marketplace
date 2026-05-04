@@ -6,12 +6,19 @@ import { useCompare } from "@/lib/store";
 import { cn, formatINR, formatKm } from "@/lib/utils";
 import type { Vehicle } from "@/lib/types";
 
+export interface VehicleBadge {
+  label: string;
+  tone: "amber" | "sage" | "info";
+}
+
 export function VehicleCard({
   vehicle,
   index = 0,
+  badge,
 }: {
   vehicle: Vehicle;
   index?: number;
+  badge?: VehicleBadge;
 }) {
   const { ids, toggle, wishlist, toggleWishlist } = useCompare();
   const isSelected = ids.includes(vehicle.id);
@@ -43,6 +50,16 @@ export function VehicleCard({
               {vehicle.category}
             </span>
           </div>
+          {badge && (
+            <div className={cn(
+              "absolute right-3 bottom-3 border bg-ink-900/85 px-2 py-1 backdrop-blur font-mono text-[9px] uppercase tracking-wider",
+              badge.tone === "amber" && "border-amber/50 text-amber",
+              badge.tone === "sage" && "border-signal-sage/50 text-signal-sage",
+              badge.tone === "info" && "border-bone-400/40 text-bone-200"
+            )}>
+              {badge.label}
+            </div>
+          )}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-ink-900/90 to-transparent" />
         </div>
       </Link>

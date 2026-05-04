@@ -14,8 +14,13 @@ import {
   RotateCcw,
   Car,
   ExternalLink,
+  ChevronRight,
+  ArrowUpRight,
+  Inbox,
+  Workflow,
 } from "lucide-react";
 import { Nav } from "@/components/nav";
+import { UploadsSection } from "@/components/uploads-section";
 import { useAuth } from "@/lib/auth";
 import {
   useAcquisitions,
@@ -24,7 +29,9 @@ import {
   type AcquisitionStatus,
 } from "@/lib/acquisitions";
 import { getVehicle, VEHICLES, PARTNER_ORGS, CATEGORY_LABELS } from "@/lib/data";
+import { YARDS, getYardForEmail } from "@/lib/yards";
 import { formatINRFull, formatINR, cn } from "@/lib/utils";
+import { Warehouse } from "lucide-react";
 
 type StatusFilter = "all" | AcquisitionStatus;
 
@@ -40,27 +47,43 @@ export default function AdminDashboardPage() {
   useEffect(() => setMounted(true), []);
 
   const admin = isAdmin(currentUser?.email);
+  const managerYard = getYardForEmail(currentUser?.email);
+  const yardManager = !!managerYard;
+
+  // Inventory scoped by role: super admin sees all; yard manager sees only their yard.
+  const scopedVehicles = useMemo(() => {
+    if (managerYard) return VEHICLES.filter((v) => v.yardCity === managerYard.city);
+    return VEHICLES;
+  }, [managerYard]);
+
+  const scopedItems = useMemo(() => {
+    if (!managerYard) return items;
+    return items.filter((a) => {
+      const v = getVehicle(a.vehicleId);
+      return v?.yardCity === managerYard.city;
+    });
+  }, [items, managerYard]);
 
   const kpis = useMemo(() => {
-    const owned = items.filter((a) => a.status === "owned");
-    const reserved = items.filter((a) => a.status === "reserved");
-    const revenue = items
+    const owned = scopedItems.filter((a) => a.status === "owned");
+    const reserved = scopedItems.filter((a) => a.status === "reserved");
+    const revenue = scopedItems
       .filter((a) => a.status !== "cancelled")
       .reduce((s, a) => s + a.amountPaid, 0);
-    const uniqueBuyers = new Set(items.map((a) => a.userEmail)).size;
+    const uniqueBuyers = new Set(scopedItems.map((a) => a.userEmail)).size;
     const gmv = owned.reduce((s, a) => s + a.priceAtAcquisition, 0);
     return {
-      total: items.length,
+      total: scopedItems.length,
       owned: owned.length,
       reserved: reserved.length,
       revenue,
       uniqueBuyers,
       gmv,
     };
-  }, [items]);
+  }, [scopedItems]);
 
   const rows = useMemo(() => {
-    let rs = items.slice().sort((a, b) => b.acquiredAt - a.acquiredAt);
+    let rs = scopedItems.slice().sort((a, b) => b.acquiredAt - a.acquiredAt);
     if (filter !== "all") rs = rs.filter((a) => a.status === filter);
     if (query.trim()) {
       const q = query.trim().toLowerCase();
@@ -75,16 +98,76 @@ export default function AdminDashboardPage() {
       });
     }
     return rs;
-  }, [items, filter, query]);
+  }, [scopedItems, filter, query]);
 
-  // Inventory KPIs (from data, not acquisitions)
+  // What needs the operator's attention right now — counts pulled from the
+  // same scoped data we already use for KPIs and pipeline.
+  const attention = useMemo(() => {
+    const awaitingInspection = scopedVehicles.filter(
+      (v) =>
+        v.status === "draft" ||
+        (v.status === "pending_review" && v.inspectionDone === false)
+    ).length;
+    const readyToList = scopedVehicles.filter(
+      (v) => v.status === "pending_review" && v.inspectionDone === true
+    ).length;
+    const reservedBookings = scopedItems.filter(
+      (a) => a.status === "reserved"
+    ).length;
+    return { awaitingInspection, readyToList, reservedBookings };
+  }, [scopedVehicles, scopedItems]);
+
+  // Inventory KPIs scoped to viewer.
   const inventoryByCategory = useMemo(() => {
     const out: Record<string, number> = {};
-    VEHICLES.forEach((v) => {
+    scopedVehicles.forEach((v) => {
       out[v.category] = (out[v.category] ?? 0) + 1;
     });
     return out;
-  }, []);
+  }, [scopedVehicles]);
+
+  // Procurement → Valuation → Sales pipeline per yard.
+  // Stage mapping:
+  //   procurement: draft OR (pending_review AND not yet inspected)
+  //   valuation:   pending_review AND inspected (priced / listing-ready)
+  //   sales:       active (listed) + reserved + sold (from ledger)
+  const yardPipelines = useMemo(() => {
+    return YARDS.map((yard) => {
+      const ofYard = VEHICLES.filter((v) => v.yardCity === yard.city);
+      const procurement = ofYard.filter(
+        (v) =>
+          v.status === "draft" ||
+          (v.status === "pending_review" && v.inspectionDone === false)
+      ).length;
+      const valuation = ofYard.filter(
+        (v) => v.status === "pending_review" && v.inspectionDone === true
+      ).length;
+      const listed = ofYard.filter((v) => v.status === "active").length;
+      const yardItems = items.filter(
+        (a) => getVehicle(a.vehicleId)?.yardCity === yard.city
+      );
+      const reserved = yardItems.filter((a) => a.status === "reserved").length;
+      const sold = yardItems.filter((a) => a.status === "owned");
+      return {
+        yard,
+        total: ofYard.length,
+        procurement,
+        valuation,
+        listed,
+        reserved,
+        sold: sold.length,
+        gmv: sold.reduce((s, a) => s + a.priceAtAcquisition, 0),
+      };
+    });
+  }, [items]);
+
+  const visiblePipelines = useMemo(
+    () =>
+      managerYard
+        ? yardPipelines.filter((p) => p.yard.id === managerYard.id)
+        : yardPipelines,
+    [yardPipelines, managerYard]
+  );
 
   if (!mounted) {
     return (
@@ -95,32 +178,133 @@ export default function AdminDashboardPage() {
   }
 
   if (!currentUser) return <Unauthorised reason="unauthenticated" />;
-  if (!admin) return <Unauthorised reason="forbidden" email={currentUser.email} />;
+  if (!admin && !yardManager)
+    return <Unauthorised reason="forbidden" email={currentUser.email} />;
 
   return (
     <div className="min-h-screen">
       <Nav />
 
       <section className="border-b border-ink-500">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-4 px-6 py-10 md:flex-row md:items-baseline md:justify-between md:px-10 md:py-14">
-          <div>
-            <div className="flex items-center gap-3">
-              <ShieldAlert className="h-4 w-4 text-amber" strokeWidth={1.5} />
-              <p className="label-amber label">Admin · Internal</p>
-            </div>
-            <h1 className="mt-4 font-display text-5xl font-light leading-tight text-bone-100 md:text-6xl">
-              Operations <span className="italic">dashboard</span>.
-            </h1>
-            <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-bone-400">
-              Signed in as {currentUser.email}
+        <div className="mx-auto max-w-[1600px] px-6 py-10 md:px-10 md:py-14">
+          <div className="flex items-center gap-3">
+            <ShieldAlert className="h-4 w-4 text-amber" strokeWidth={1.5} />
+            <p className="label-amber label">
+              {managerYard ? `Yard · ${managerYard.name}` : "Admin · Internal"}
             </p>
           </div>
+          <h1 className="mt-4 font-display text-5xl font-light leading-tight text-bone-100 md:text-6xl">
+            {managerYard ? (
+              <>
+                {managerYard.name} <span className="italic">yard</span>.
+              </>
+            ) : (
+              <>
+                Operations <span className="italic">dashboard</span>.
+              </>
+            )}
+          </h1>
+          <p className="mt-4 font-mono text-[11px] uppercase tracking-wider text-bone-400">
+            Signed in as {currentUser.email}
+            {managerYard && ` · ${managerYard.region} region`}
+          </p>
         </div>
       </section>
 
       <main className="mx-auto max-w-[1600px] px-6 py-10 md:px-10 md:py-14">
+        {/* Needs attention — what to do right now, pulled from live data */}
+        <div className="border border-ink-500 bg-ink-800">
+          <div className="flex items-center justify-between border-b border-ink-500 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Inbox className="h-3.5 w-3.5 text-amber" strokeWidth={1.5} />
+              <p className="label-amber label">Needs attention</p>
+            </div>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">
+              Click a card to handle it
+            </p>
+          </div>
+          <div className="grid gap-0 md:grid-cols-3">
+            <AttentionCard
+              count={attention.awaitingInspection}
+              label="Awaiting inspection"
+              hint="New vehicles from bank intake, not yet inspected."
+              cta="Open intake"
+              href="/admin/intake"
+            />
+            <AttentionCard
+              count={attention.readyToList}
+              label="Ready to price &amp; list"
+              hint="Inspected vehicles waiting on valuation."
+              cta="Open valuation"
+              href="/admin/valuation"
+            />
+            <AttentionCard
+              count={attention.reservedBookings}
+              label="Reserved bookings"
+              hint="Buyers who paid 5%; chase or convert to owned."
+              cta="Open ledger"
+              href="#ledger"
+              last
+            />
+          </div>
+        </div>
+
+        {/* Bank uploads pipeline */}
+        {admin && (
+          <div className="mt-10">
+            <UploadsSection />
+          </div>
+        )}
+
+        {/* Workflow modules — grouped so the IA reads like the actual flow */}
+        {admin && (
+          <div className="mt-10 border border-ink-500 bg-ink-800">
+            <div className="flex items-center justify-between border-b border-ink-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <Workflow className="h-3.5 w-3.5 text-amber" strokeWidth={1.5} />
+                <p className="label-amber label">Workflow &amp; tools</p>
+              </div>
+              <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">
+                Procurement &rarr; Sales &rarr; Operations
+              </p>
+            </div>
+            <div className="grid gap-0 md:grid-cols-3">
+              <ModuleGroup
+                title="Procurement &amp; listing"
+                subtitle="Get vehicles in, inspected, and ready to sell"
+                items={[
+                  { href: "/admin/intake", label: "Bank intake", desc: "Receive vehicle batches from partner banks." },
+                  { href: "/admin/valuation", label: "Valuation", desc: "Inspect, price and prepare for listing." },
+                  { href: "/admin/refurb", label: "Refurb", desc: "Track repair and reconditioning jobs." },
+                ]}
+              />
+              <ModuleGroup
+                title="Sales &amp; people"
+                subtitle="Buyers, leads and field agents"
+                items={[
+                  { href: "/admin/leads", label: "Leads (LMS)", desc: "Manage buyer enquiries and follow-ups." },
+                  { href: "/admin/agents", label: "Agents", desc: "Field staff, assignments and performance." },
+                  { href: "/admin/users", label: "Users", desc: "Customer accounts and KYC." },
+                ]}
+              />
+              <ModuleGroup
+                title="Operations &amp; visibility"
+                subtitle="Money, alerts, audit and reporting"
+                items={[
+                  { href: "/admin/collections", label: "Collections", desc: "Payments and outstanding dues." },
+                  { href: "/admin/notifications", label: "Notifications", desc: "Outbound alerts to buyers and partners." },
+                  { href: "/admin/activity", label: "Activity log", desc: "Full audit trail across the system." },
+                  { href: "/admin/reports", label: "Reports", desc: "Exports and consolidated metrics." },
+                  { href: "/bank", label: "Bank portal", desc: "Switch to the partner bank view." },
+                ]}
+                last
+              />
+            </div>
+          </div>
+        )}
+
         {/* KPI grid */}
-        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-4">
           <KPI
             icon={<Package className="h-4 w-4" strokeWidth={1.5} />}
             label="Acquisitions"
@@ -143,8 +327,33 @@ export default function AdminDashboardPage() {
             icon={<Users className="h-4 w-4" strokeWidth={1.5} />}
             label="Unique buyers"
             value={kpis.uniqueBuyers.toString()}
-            sub={`${VEHICLES.length} listings · ${PARTNER_ORGS.length} partners`}
+            sub={
+              managerYard
+                ? `${scopedVehicles.length} listings in yard`
+                : `${VEHICLES.length} listings · ${PARTNER_ORGS.length} partners`
+            }
           />
+        </div>
+
+        {/* Procurement → Valuation → Sales pipeline */}
+        <div className="mt-10 border border-ink-500 bg-ink-800">
+          <div className="flex items-center justify-between border-b border-ink-500 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Warehouse className="h-3.5 w-3.5 text-amber" strokeWidth={1.5} />
+              <p className="label-amber label">
+                Procurement &rarr; Valuation &rarr; Sales
+                {managerYard ? ` · ${managerYard.name}` : " · by yard"}
+              </p>
+            </div>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">
+              {visiblePipelines.length} {visiblePipelines.length === 1 ? "yard" : "yards"} · live cycle
+            </p>
+          </div>
+          <div className="grid gap-0 md:grid-cols-2 xl:grid-cols-3">
+            {visiblePipelines.map((p, i) => (
+              <YardPipelineCard key={p.yard.id} pipeline={p} index={i} />
+            ))}
+          </div>
         </div>
 
         {/* Inventory breakdown */}
@@ -152,7 +361,11 @@ export default function AdminDashboardPage() {
           <div className="flex items-center justify-between border-b border-ink-500 px-6 py-4">
             <div className="flex items-center gap-3">
               <Car className="h-3.5 w-3.5 text-amber" strokeWidth={1.5} />
-              <p className="label-amber label">Inventory · by category</p>
+              <p className="label-amber label">
+                {managerYard
+                  ? `Inventory · ${managerYard.name} · by category`
+                  : "Inventory · by category"}
+              </p>
             </div>
             <Link
               href="/"
@@ -180,7 +393,7 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Acquisitions table */}
-        <div className="mt-10 border border-ink-500 bg-ink-800">
+        <div id="ledger" className="mt-10 scroll-mt-8 border border-ink-500 bg-ink-800">
           <div className="flex flex-wrap items-center gap-4 border-b border-ink-500 px-6 py-4">
             <p className="label-amber label">Acquisitions ledger</p>
             <div className="ml-auto flex flex-wrap items-center gap-3">
@@ -373,6 +586,149 @@ function StatusBadge({ status }: { status: AcquisitionStatus }) {
   );
 }
 
+function YardPipelineCard({
+  pipeline,
+  index,
+}: {
+  pipeline: {
+    yard: { id: string; name: string; region: string; managerEmail: string };
+    total: number;
+    procurement: number;
+    valuation: number;
+    listed: number;
+    reserved: number;
+    sold: number;
+    gmv: number;
+  };
+  index: number;
+}) {
+  const { yard } = pipeline;
+  const salesTotal = pipeline.listed + pipeline.reserved + pipeline.sold;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: Math.min(index * 0.05, 0.2) }}
+      className="border-b border-r border-ink-500 p-6 last:border-r-0 xl:[&:nth-child(3n)]:border-r-0 md:[&:nth-child(2n)]:border-r-0 xl:md:[&:nth-child(2n)]:border-r"
+    >
+      <div className="flex items-baseline justify-between">
+        <div>
+          <p className="font-display text-2xl text-bone-100">{yard.name}</p>
+          <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-bone-500">
+            {yard.region} · {yard.managerEmail}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="font-display text-xl text-bone-100 tabular">{pipeline.total}</p>
+          <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">
+            units total
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 flex items-stretch gap-2">
+        <Stage
+          label="Procurement"
+          value={pipeline.procurement}
+          hint="awaiting inspection"
+          tone="amber"
+          href="/admin/intake"
+        />
+        <Arrow />
+        <Stage
+          label="Valuation"
+          value={pipeline.valuation}
+          hint="priced · listing"
+          tone="bone"
+          href="/admin/valuation"
+        />
+        <Arrow />
+        <Stage
+          label="Sales"
+          value={salesTotal}
+          hint={`${pipeline.listed}L · ${pipeline.reserved}R · ${pipeline.sold}S`}
+          tone="sage"
+          href="#ledger"
+        />
+      </div>
+
+      <div className="mt-5 grid grid-cols-4 gap-0 border-t border-ink-500 pt-4">
+        <Metric label="Listed" value={pipeline.listed} />
+        <Metric label="Reserved" value={pipeline.reserved} />
+        <Metric label="Sold" value={pipeline.sold} />
+        <Metric
+          label="GMV"
+          value={pipeline.gmv > 0 ? formatINR(pipeline.gmv) : "—"}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+function Stage({
+  label,
+  value,
+  hint,
+  tone,
+  href,
+}: {
+  label: string;
+  value: number;
+  hint: string;
+  tone: "amber" | "bone" | "sage";
+  href?: string;
+}) {
+  const colors = {
+    amber: "border-amber/40 bg-amber/5 text-amber",
+    bone: "border-bone-300/30 bg-bone-300/5 text-bone-100",
+    sage: "border-signal-sage/40 bg-signal-sage/5 text-signal-sage",
+  }[tone];
+  const inner = (
+    <>
+      <p className="font-mono text-[9px] uppercase tracking-wider opacity-80">
+        {label}
+      </p>
+      <p className="mt-2 font-display text-3xl text-bone-100 tabular">{value}</p>
+      <p className="mt-1 font-mono text-[9px] uppercase tracking-wider text-bone-500">
+        {hint}
+      </p>
+    </>
+  );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={`group flex-1 border ${colors} p-3 transition hover:bg-ink-700`}
+      >
+        {inner}
+        <p className="mt-2 flex items-center gap-1 font-mono text-[9px] uppercase tracking-wider text-bone-500 opacity-0 transition group-hover:opacity-100">
+          Open <ArrowUpRight className="h-3 w-3" strokeWidth={1.5} />
+        </p>
+      </Link>
+    );
+  }
+  return <div className={`flex-1 border ${colors} p-3`}>{inner}</div>;
+}
+
+function Arrow() {
+  return (
+    <div className="flex items-center text-bone-500">
+      <ChevronRight className="h-4 w-4" strokeWidth={1.5} />
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div>
+      <p className="font-mono text-[9px] uppercase tracking-wider text-bone-500">
+        {label}
+      </p>
+      <p className="mt-1 font-mono text-xs text-bone-100 tabular">{value}</p>
+    </div>
+  );
+}
+
 function Th({ children }: { children: React.ReactNode }) {
   return (
     <th className="px-5 py-3 text-left font-mono text-[10px] uppercase tracking-wider text-bone-400">
@@ -477,6 +833,108 @@ function Unauthorised({
             Return to marketplace
           </Link>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AttentionCard({
+  count,
+  label,
+  hint,
+  cta,
+  href,
+  last,
+}: {
+  count: number;
+  label: string;
+  hint: string;
+  cta: string;
+  href: string;
+  last?: boolean;
+}) {
+  const empty = count === 0;
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "group flex flex-col gap-3 border-b border-r border-ink-500 p-6 transition hover:bg-ink-700 md:border-b-0",
+        last && "md:border-r-0"
+      )}
+    >
+      <div className="flex items-baseline justify-between">
+        <p
+          className={cn(
+            "font-display text-5xl tabular",
+            empty ? "text-bone-500" : "text-amber"
+          )}
+        >
+          {count}
+        </p>
+        <ArrowUpRight
+          className="h-4 w-4 text-bone-500 transition group-hover:text-amber"
+          strokeWidth={1.5}
+        />
+      </div>
+      <div>
+        <p className="label">{label}</p>
+        <p className="mt-1.5 font-mono text-[11px] leading-relaxed text-bone-400">
+          {hint}
+        </p>
+      </div>
+      <p className="mt-auto flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-bone-300 transition group-hover:text-amber">
+        {cta}
+        <ChevronRight className="h-3 w-3" strokeWidth={1.5} />
+      </p>
+    </Link>
+  );
+}
+
+function ModuleGroup({
+  title,
+  subtitle,
+  items,
+  last,
+}: {
+  title: string;
+  subtitle: string;
+  items: { href: string; label: string; desc: string }[];
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-4 border-b border-r border-ink-500 p-6 md:border-b-0",
+        last && "md:border-r-0"
+      )}
+    >
+      <div>
+        <p className="label-amber label">{title}</p>
+        <p className="mt-2 font-mono text-[11px] leading-relaxed text-bone-400">
+          {subtitle}
+        </p>
+      </div>
+      <div className="flex flex-col gap-1">
+        {items.map((it) => (
+          <Link
+            key={it.href}
+            href={it.href}
+            className="group flex items-start justify-between gap-3 border border-transparent px-3 py-2.5 transition hover:border-ink-500 hover:bg-ink-900/50"
+          >
+            <div className="flex-1">
+              <p className="font-mono text-[12px] text-bone-100 transition group-hover:text-amber">
+                {it.label}
+              </p>
+              <p className="mt-0.5 font-mono text-[10px] leading-relaxed text-bone-500">
+                {it.desc}
+              </p>
+            </div>
+            <ArrowUpRight
+              className="mt-0.5 h-3.5 w-3.5 text-bone-500 transition group-hover:text-amber"
+              strokeWidth={1.5}
+            />
+          </Link>
+        ))}
       </div>
     </div>
   );

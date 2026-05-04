@@ -2,11 +2,20 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Heart, LogOut, Search, ShieldAlert, Car, User } from "lucide-react";
+import { Heart, LogOut, Search, ShieldAlert, Car, User, Briefcase, Bell } from "lucide-react";
 import { useCompare } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
 import { isAdmin } from "@/lib/acquisitions";
+import { isYardManager, getYardForEmail } from "@/lib/yards";
+import { isAgentEmail, useAgents, getAgentForEmail } from "@/lib/agents";
+import { isSalesRepEmail, getSalesRepForEmail } from "@/lib/sales";
+import { useBanks } from "@/lib/banks";
+import { useCollections } from "@/lib/collections";
+import { useRefurb } from "@/lib/refurb";
+import { useSales } from "@/lib/sales";
+import { buildAlerts, useNotifications } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 
 export function Nav() {
   const pathname = usePathname();
@@ -36,6 +45,28 @@ export function Nav() {
         .toUpperCase()
     : null;
   const admin = isAdmin(currentUser?.email);
+  const yardManager = isYardManager(currentUser?.email);
+  const managerYard = getYardForEmail(currentUser?.email);
+  const agents = useAgents((s) => s.agents);
+  const agent = getAgentForEmail(currentUser?.email, agents);
+  const isAgent = !!agent || isAgentEmail(currentUser?.email);
+  const salesRep = getSalesRepForEmail(currentUser?.email);
+  const isSalesRep = !!salesRep || isSalesRepEmail(currentUser?.email);
+
+  // Alerts (admin only)
+  const intakes = useBanks((s) => s.intakes);
+  const valuations = useBanks((s) => s.valuations);
+  const borrowers = useCollections((s) => s.borrowers);
+  const settlements = useCollections((s) => s.settlements);
+  const orders = useRefurb((s) => s.orders);
+  const allotments = useAgents((s) => s.allotments);
+  const leads = useSales((s) => s.leads);
+  const read = useNotifications((s) => s.read);
+  const alerts = useMemo(
+    () => admin ? buildAlerts({ intakes, valuations, borrowers, settlements, orders, allotments, leads }) : [],
+    [admin, intakes, valuations, borrowers, settlements, orders, allotments, leads]
+  );
+  const unreadCount = alerts.filter((a) => !read[a.id]).length;
 
   return (
     <header className="sticky top-0 z-40 border-b border-ink-500 bg-ink-900/80 backdrop-blur-xl">
@@ -69,6 +100,20 @@ export function Nav() {
           >
             <Search className="h-4 w-4" strokeWidth={1.5} />
           </button>
+          {admin && (
+            <Link
+              href="/admin/notifications"
+              className="relative text-bone-300 transition hover:text-amber"
+              aria-label="Notifications"
+            >
+              <Bell className="h-4 w-4" strokeWidth={1.5} />
+              {unreadCount > 0 && (
+                <span className="absolute -right-2 -top-2 flex h-4 min-w-4 items-center justify-center bg-signal-red px-1 font-mono text-[9px] text-bone-100">
+                  {unreadCount}
+                </span>
+              )}
+            </Link>
+          )}
           <Link
             href="#"
             className="relative text-bone-300 transition hover:text-amber"
@@ -107,6 +152,21 @@ export function Nav() {
                         Admin
                       </p>
                     )}
+                    {yardManager && managerYard && (
+                      <p className="mt-2 inline-block border border-amber/40 bg-amber/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber">
+                        Yard · {managerYard.name}
+                      </p>
+                    )}
+                    {isAgent && (
+                      <p className="mt-2 inline-block border border-amber/40 bg-amber/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber">
+                        Agent {agent ? `· ${agent.code}` : ""}
+                      </p>
+                    )}
+                    {isSalesRep && (
+                      <p className="mt-2 inline-block border border-amber/40 bg-amber/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wider text-amber">
+                        Sales {salesRep ? `· ${salesRep.code}` : ""}
+                      </p>
+                    )}
                   </div>
                   <Link
                     href="/account/acquisitions"
@@ -116,14 +176,44 @@ export function Nav() {
                     <Car className="h-3.5 w-3.5" strokeWidth={1.5} />
                     My acquisitions
                   </Link>
-                  {admin && (
+                  {(admin || yardManager) && (
                     <Link
                       href="/admin"
                       onClick={() => setMenuOpen(false)}
                       className="flex w-full items-center gap-3 border-b border-ink-500 px-4 py-3 text-left font-mono text-[11px] uppercase tracking-wider text-bone-300 transition hover:bg-ink-700 hover:text-amber"
                     >
                       <ShieldAlert className="h-3.5 w-3.5" strokeWidth={1.5} />
-                      Admin dashboard
+                      {admin ? "Admin dashboard" : "Yard dashboard"}
+                    </Link>
+                  )}
+                  {admin && (
+                    <Link
+                      href="/admin/agents"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-3 border-b border-ink-500 px-4 py-3 text-left font-mono text-[11px] uppercase tracking-wider text-bone-300 transition hover:bg-ink-700 hover:text-amber"
+                    >
+                      <Briefcase className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Agents & resellers
+                    </Link>
+                  )}
+                  {isAgent && (
+                    <Link
+                      href="/agent"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-3 border-b border-ink-500 px-4 py-3 text-left font-mono text-[11px] uppercase tracking-wider text-bone-300 transition hover:bg-ink-700 hover:text-amber"
+                    >
+                      <Briefcase className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Agent dashboard
+                    </Link>
+                  )}
+                  {isSalesRep && (
+                    <Link
+                      href="/sales"
+                      onClick={() => setMenuOpen(false)}
+                      className="flex w-full items-center gap-3 border-b border-ink-500 px-4 py-3 text-left font-mono text-[11px] uppercase tracking-wider text-bone-300 transition hover:bg-ink-700 hover:text-amber"
+                    >
+                      <Briefcase className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      Sales dashboard
                     </Link>
                   )}
                   <button

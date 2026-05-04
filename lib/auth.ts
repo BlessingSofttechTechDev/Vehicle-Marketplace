@@ -1,6 +1,10 @@
 "use client";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { YARD_MANAGERS } from "./yards";
+import { AGENT_CREDENTIALS, isAgentEmail } from "./agents";
+import { SALES_REP_CREDENTIALS, isSalesRepEmail } from "./sales";
+import { isAdmin } from "./acquisitions";
 
 export interface PublicUser {
   email: string;
@@ -26,7 +30,13 @@ export const DEMO_CREDENTIALS: { admin: DemoCredential; customer: DemoCredential
   },
 };
 
-const ALLOWED = [DEMO_CREDENTIALS.admin, DEMO_CREDENTIALS.customer];
+const ALLOWED: DemoCredential[] = [
+  DEMO_CREDENTIALS.admin,
+  DEMO_CREDENTIALS.customer,
+  ...YARD_MANAGERS.map(({ email, password, name }) => ({ email, password, name })),
+  ...AGENT_CREDENTIALS,
+  ...SALES_REP_CREDENTIALS,
+];
 
 interface AuthStore {
   currentUser: PublicUser | null;
@@ -57,3 +67,14 @@ export const useAuth = create<AuthStore>()(
     }
   )
 );
+
+const YARD_MANAGER_EMAILS = new Set(YARD_MANAGERS.map((y) => y.email.toLowerCase()));
+
+export function landingPathFor(email: string | undefined | null): string {
+  if (!email) return "/";
+  const e = email.trim().toLowerCase();
+  if (isAdmin(e) || YARD_MANAGER_EMAILS.has(e)) return "/admin";
+  if (isAgentEmail(e)) return "/agent";
+  if (isSalesRepEmail(e)) return "/sales";
+  return "/";
+}

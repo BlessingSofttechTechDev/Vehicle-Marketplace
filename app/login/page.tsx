@@ -4,12 +4,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Eye, EyeOff } from "lucide-react";
-import { useAuth } from "@/lib/auth";
+import { useAuth, landingPathFor } from "@/lib/auth";
 
 function LoginInner() {
   const router = useRouter();
   const search = useSearchParams();
-  const next = search.get("next") || "/";
+  const nextParam = search.get("next");
   const { login, currentUser } = useAuth();
 
   const [form, setForm] = useState({ email: "", password: "" });
@@ -18,8 +18,11 @@ function LoginInner() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (currentUser) router.replace(next);
-  }, [currentUser, next, router]);
+    if (currentUser) {
+      const dest = nextParam ?? landingPathFor(currentUser.email);
+      router.replace(dest);
+    }
+  }, [currentUser, nextParam, router]);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,13 +169,22 @@ function LoginInner() {
               </form>
 
               <div className="mt-10 border-t border-ink-500 pt-6 space-y-3 text-center font-mono text-[10px] leading-relaxed text-bone-500">
-                <p>Demo access · use either set of credentials below.</p>
+                <p>Demo access · pick any credential below.</p>
                 <div className="space-y-1 text-bone-300">
                   <p>
                     <span className="text-amber">Admin</span> · admin@meridian.com · meridian123
                   </p>
                   <p>
                     <span className="text-amber">Customer</span> · customer@meridian.com · customer123
+                  </p>
+                  <p>
+                    <span className="text-amber">Yard · Lucknow</span> · lucknow@meridian.com · yard123
+                  </p>
+                  <p>
+                    <span className="text-amber">Yard · Delhi NCR</span> · delhi-ncr@meridian.com · yard123
+                  </p>
+                  <p>
+                    <span className="text-amber">Yard · Ranchi</span> · ranchi@meridian.com · yard123
                   </p>
                 </div>
               </div>

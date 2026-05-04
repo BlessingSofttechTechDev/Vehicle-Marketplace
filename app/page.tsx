@@ -2,9 +2,15 @@
 import { useMemo, useState } from "react";
 import { Nav } from "@/components/nav";
 import { FilterBar, DEFAULT_FILTERS, type Filters } from "@/components/filter-bar";
-import { VehicleCard } from "@/components/vehicle-card";
+import { VehicleCard, type VehicleBadge } from "@/components/vehicle-card";
 import { CompareTray } from "@/components/compare-tray";
 import { VEHICLES } from "@/lib/data";
+import { useBanks, valuationFor, bankForVehicle } from "@/lib/banks";
+import { useAgents, allottedVehicleIds } from "@/lib/agents";
+import { useCollections } from "@/lib/collections";
+import { useRefurb } from "@/lib/refurb";
+
+const DAY = 86400000;
 
 const TICKER = [
   "New — Porsche 992 Carrera, Mumbai",
@@ -16,9 +22,61 @@ const TICKER = [
 
 export default function HomePage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const intakes = useBanks((s) => s.intakes);
+  const valuations = useBanks((s) => s.valuations);
+  const allotments = useAgents((s) => s.allotments);
+  const seizures = useCollections((s) => s.seizures);
+  const orders = useRefurb((s) => s.orders);
+
+  const heldByAgents = useMemo(() => allottedVehicleIds(allotments), [allotments]);
+
+  const borrowers = useCollections((s) => s.borrowers);
+  const underSeizure = useMemo(() => {
+    const ids = new Set<string>();
+    const activeIds = new Set<string>(
+      seizures
+        .filter((z) => z.status !== "closed")
+        .map((z) => z.borrowerId)
+    );
+    for (const b of borrowers) {
+      if (activeIds.has(b.id)) ids.add(b.vehicleId);
+    }
+    return ids;
+  }, [seizures, borrowers]);
+
+  const intakeIds = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const i of intakes) for (const id of i.vehicleIds) {
+      if (!m.has(id)) m.set(id, i.receivedAt);
+    }
+    return m;
+  }, [intakes]);
+
+  const completedRefurb = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of orders) {
+      if (o.status === "completed" && o.completedAt) {
+        const cur = m.get(o.vehicleId) ?? 0;
+        if (o.completedAt > cur) m.set(o.vehicleId, o.completedAt);
+      }
+    }
+    return m;
+  }, [orders]);
 
   const results = useMemo(() => {
     let v = VEHICLES.slice();
+
+    // Hide allotted-to-agents (in agent's hands)
+    v = v.filter((x) => !heldByAgents.has(x.id));
+    // Hide vehicles under active seizure
+    v = v.filter((x) => !underSeizure.has(x.id));
+    // Hide vehicles in bank intake without an approved valuation (not yet listing-ready)
+    v = v.filter((x) => {
+      if (!intakeIds.has(x.id)) return true; // not bank-tracked → keep
+      const val = valuationFor(x.id, valuations);
+      return val?.status === "approved";
+    });
+
     if (filters.category !== "all") v = v.filter((x) => x.category === filters.category);
     v = v.filter((x) => x.price <= filters.priceMax);
     if (filters.years.length) v = v.filter((x) => filters.years.includes(x.year));
@@ -38,7 +96,19 @@ export default function HomePage() {
         break;
     }
     return v;
-  }, [filters]);
+  }, [filters, heldByAgents, underSeizure, intakeIds, valuations]);
+
+  const badgeFor = (id: string): VehicleBadge | undefined => {
+    const ts = completedRefurb.get(id);
+    if (ts && Date.now() - ts < 30 * DAY) return { label: "Refurbished", tone: "sage" };
+    if (intakeIds.has(id)) {
+      const info = bankForVehicle(id, intakes);
+      if (info) return { label: `${info.bank.shortName} repo · valued`, tone: "amber" };
+    }
+    const newest = intakeIds.get(id);
+    if (newest && Date.now() - newest < 14 * DAY) return { label: "Just listed", tone: "info" };
+    return undefined;
+  };
 
   return (
     <div className="min-h-screen">
@@ -97,7 +167,7 @@ export default function HomePage() {
         ) : (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {results.map((v, i) => (
-              <VehicleCard key={v.id} vehicle={v} index={i} />
+              <VehicleCard key={v.id} vehicle={v} index={i} badge={badgeFor(v.id)} />
             ))}
           </div>
         )}

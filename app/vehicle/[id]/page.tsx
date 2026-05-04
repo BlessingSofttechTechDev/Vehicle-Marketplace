@@ -1,15 +1,19 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Heart, MapPin } from "lucide-react";
+import { ArrowLeft, ArrowRight, Heart, MapPin, Building2, Camera, Wrench, FileText, Phone, X, Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { Nav } from "@/components/nav";
 import { CompareTray } from "@/components/compare-tray";
 import { getVehicle, VEHICLES } from "@/lib/data";
 import { useCheckout, useCompare } from "@/lib/store";
 import { useAuth } from "@/lib/auth";
-import { formatINR, formatINRFull, formatKm } from "@/lib/utils";
+import { useBanks, valuationFor, bankForVehicle, getValuer } from "@/lib/banks";
+import { useRefurb } from "@/lib/refurb";
+import { useDocuments, docsForVehicle, DOC_LABELS } from "@/lib/documents";
+import { useSales, type Lead } from "@/lib/sales";
+import { formatINR, formatINRFull, formatKm, cn } from "@/lib/utils";
 
 export default function VehiclePage({
   params,
@@ -22,6 +26,19 @@ export default function VehiclePage({
   const startCheckout = useCheckout((s) => s.startCheckout);
   const currentUser = useAuth((s) => s.currentUser);
   const [activeImage, setActiveImage] = useState(0);
+  const [showLead, setShowLead] = useState(false);
+
+  const intakes = useBanks((s) => s.intakes);
+  const valuations = useBanks((s) => s.valuations);
+  const orders = useRefurb((s) => s.orders);
+  const docs = useDocuments((s) => s.docs);
+  const addLead = useSales((s) => s.addLead);
+
+  const bankInfo = useMemo(() => vehicle ? bankForVehicle(vehicle.id, intakes) : undefined, [vehicle, intakes]);
+  const valuation = useMemo(() => vehicle ? valuationFor(vehicle.id, valuations) : undefined, [vehicle, valuations]);
+  const valuer = valuation ? getValuer(valuation.valuerId) : undefined;
+  const repairs = useMemo(() => vehicle ? orders.filter((o) => o.vehicleId === vehicle.id) : [], [orders, vehicle]);
+  const vehicleDocs = useMemo(() => vehicle ? docsForVehicle(vehicle.id, docs) : [], [docs, vehicle]);
 
   if (!vehicle) return notFound();
 
@@ -54,6 +71,27 @@ export default function VehiclePage({
             Back to marketplace
           </span>
         </Link>
+
+        {bankInfo && (
+          <div className="mt-6 flex flex-wrap items-center gap-3 border border-amber/40 bg-amber/5 px-5 py-3">
+            <Building2 className="h-3.5 w-3.5 text-amber" strokeWidth={1.5} />
+            <p className="font-mono text-[11px] uppercase tracking-wider text-amber">
+              Repossessed via {bankInfo.bank.shortName}
+            </p>
+            <span className="text-bone-500">·</span>
+            <p className="font-mono text-[11px] text-bone-300">
+              Intake {bankInfo.intake.reference}
+            </p>
+            {valuation && (
+              <>
+                <span className="text-bone-500">·</span>
+                <p className="font-mono text-[11px] text-bone-300">
+                  Valued by {valuer?.name ?? "panel valuer"} · floor {formatINR(valuation.floorPrice)}
+                </p>
+              </>
+            )}
+          </div>
+        )}
 
         <div className="mt-8 grid gap-10 lg:grid-cols-[1.4fr_1fr]">
           {/* Gallery */}
@@ -168,6 +206,13 @@ export default function VehiclePage({
                 <span className="check-square" data-checked={isSelected} />
                 {isSelected ? "Added to comparison" : "Add to comparison"}
               </button>
+              <button
+                onClick={() => setShowLead(true)}
+                className="flex items-center justify-center gap-3 border border-ink-500 px-8 py-4 font-mono text-xs uppercase tracking-wider text-bone-300 transition hover:border-amber hover:text-amber"
+              >
+                <Phone className="h-3.5 w-3.5" strokeWidth={1.5} />
+                Talk to a sales rep
+              </button>
             </div>
           </div>
         </div>
@@ -214,6 +259,96 @@ export default function VehiclePage({
           </div>
         </section>
 
+        {/* Valuation transcript */}
+        {valuation && (
+          <section className="mt-20 border-t border-ink-500 pt-12">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-display text-3xl text-bone-100 flex items-center gap-3">
+                <Camera className="h-5 w-5 text-amber" strokeWidth={1.5} />
+                Bank-panel <span className="italic text-amber">valuation</span>
+              </h2>
+              <p className="label tabular">
+                Floor {formatINR(valuation.floorPrice)} · List {formatINR(valuation.recommendedListPrice)}
+              </p>
+            </div>
+            <div className="mt-6 grid gap-6 md:grid-cols-[1fr_2fr]">
+              <div className="space-y-3">
+                <Detail label="Valuer" value={valuer?.name ?? valuation.valuerId} />
+                <Detail label="Cert" value={valuer?.certNumber ?? "—"} />
+                <Detail label="Inspected on" value={new Date(valuation.inspectedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} />
+                {valuation.marketReference && <Detail label="Market reference" value={valuation.marketReference} />}
+                <Detail label="Status" value={valuation.status} />
+                {valuation.notes && (
+                  <div>
+                    <p className="label">Inspection notes</p>
+                    <p className="mt-1 font-mono text-[11px] text-bone-300">{valuation.notes}</p>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {valuation.photos.map((p, idx) => (
+                  <div key={idx} className="border border-ink-500">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={p.url} alt={p.caption ?? ""} className="aspect-video w-full object-cover" />
+                    {p.caption && <p className="border-t border-ink-500 px-2 py-1 font-mono text-[9px] uppercase tracking-wider text-bone-400">{p.caption}</p>}
+                  </div>
+                ))}
+                {valuation.photos.length === 0 && <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">No photos captured.</p>}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Refurb history */}
+        {repairs.length > 0 && (
+          <section className="mt-20 border-t border-ink-500 pt-12">
+            <h2 className="font-display text-3xl text-bone-100 flex items-center gap-3">
+              <Wrench className="h-5 w-5 text-amber" strokeWidth={1.5} />
+              Refurb <span className="italic text-amber">history</span>
+            </h2>
+            <div className="mt-6 divide-y divide-ink-500 border border-ink-500">
+              {repairs.map((r) => (
+                <div key={r.id} className="grid gap-3 px-5 py-4 md:grid-cols-[1fr_2fr_1fr]">
+                  <div>
+                    <p className="font-mono text-[10px] uppercase tracking-wider text-amber">{r.status}</p>
+                    <p className="mt-1 font-mono text-[11px] text-bone-100">{r.vendor}</p>
+                    <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-bone-500">
+                      {r.completedAt ? `Completed ${new Date(r.completedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : r.startedAt ? `Started ${new Date(r.startedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "Planned"}
+                    </p>
+                  </div>
+                  <ul className="space-y-1 font-mono text-[11px] text-bone-300">
+                    {r.items.map((it, idx) => <li key={idx}>· {it.desc} — {formatINRFull(it.cost)}</li>)}
+                  </ul>
+                  <p className="font-display text-xl text-amber tabular md:text-right">{formatINRFull(r.totalCost)}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Documents */}
+        {vehicleDocs.length > 0 && (
+          <section className="mt-20 border-t border-ink-500 pt-12">
+            <h2 className="font-display text-3xl text-bone-100 flex items-center gap-3">
+              <FileText className="h-5 w-5 text-amber" strokeWidth={1.5} />
+              Document <span className="italic text-amber">vault</span>
+            </h2>
+            <div className="mt-6 divide-y divide-ink-500 border border-ink-500">
+              {vehicleDocs.map((d) => (
+                <div key={d.id} className="grid gap-3 px-5 py-3 md:grid-cols-[1fr_1fr_1fr_auto] md:items-center">
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-amber">{DOC_LABELS[d.type]}</p>
+                  <p className="font-mono text-[11px] text-bone-100">{d.name}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-bone-500">
+                    {new Date(d.uploadedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                    {d.uploadedBy ? ` · ${d.uploadedBy}` : ""}
+                  </p>
+                  <a href={d.url} target="_blank" rel="noreferrer" className="font-mono text-[10px] uppercase tracking-wider text-bone-300 hover:text-amber">View →</a>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Similar vehicles */}
         <section className="mt-20 border-t border-ink-500 pt-12">
           <div className="flex items-baseline justify-between">
@@ -252,7 +387,67 @@ export default function VehiclePage({
         </section>
       </div>
 
+      {showLead && (
+        <LeadModal
+          onClose={() => setShowLead(false)}
+          onSubmit={(name, phone) => {
+            addLead(vehicle.id, name, phone, "web");
+            setShowLead(false);
+          }}
+        />
+      )}
+
       <CompareTray />
+    </div>
+  );
+}
+
+function LeadModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (name: string, phone: string) => void }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [done, setDone] = useState(false);
+  const valid = name.trim().length >= 2 && phone.trim().length >= 6;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/80 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md border border-ink-500 bg-ink-800 p-6 shadow-2xl">
+        <div className="mb-5 flex items-center justify-between border-b border-ink-500 pb-4">
+          <h3 className="font-display text-xl text-bone-100">{done ? "Got it" : "Talk to a sales rep"}</h3>
+          <button onClick={onClose}><X className="h-4 w-4 text-bone-300" /></button>
+        </div>
+        {done ? (
+          <div className="py-4">
+            <Check className="h-10 w-10 text-signal-sage" strokeWidth={1.2} />
+            <p className="mt-4 font-mono text-[12px] text-bone-100">A direct sales rep will reach you within one business hour.</p>
+            <button onClick={onClose} className="mt-6 border border-amber bg-amber px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-ink-900">Close</button>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3">
+              <label className="block">
+                <span className="label">Your name</span>
+                <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full border border-ink-500 bg-ink-900 px-3 py-2 font-mono text-sm text-bone-100 outline-none focus:border-amber" placeholder="Full name" />
+              </label>
+              <label className="block">
+                <span className="label">Phone</span>
+                <input value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1 w-full border border-ink-500 bg-ink-900 px-3 py-2 font-mono text-sm text-bone-100 outline-none focus:border-amber" placeholder="+91 9xxxxxxxxx" />
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={onClose} className="border border-ink-500 px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-bone-300">Cancel</button>
+              <button disabled={!valid} onClick={() => { onSubmit(name.trim(), phone.trim()); setDone(true); }} className={cn("border px-4 py-2 font-mono text-[11px] uppercase tracking-wider", valid ? "border-amber bg-amber text-ink-900" : "cursor-not-allowed border-ink-500 text-bone-500")}>Submit</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="label">{label}</p>
+      <p className="mt-1 font-mono text-[11px] text-bone-100">{value}</p>
     </div>
   );
 }
