@@ -12,7 +12,6 @@ import { type Acquisition } from "./acquisitions";
 import {
   type Agent,
   type Allotment,
-  type AllotmentLine,
   agentRevenue,
 } from "./agents";
 import { type RepairOrder, repairCostFor } from "./refurb";

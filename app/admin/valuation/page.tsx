@@ -5,9 +5,9 @@ import { ArrowLeft, Camera, ShieldAlert, ChevronRight, Plus, X, Check } from "lu
 import { Nav } from "@/components/nav";
 import { useAuth } from "@/lib/auth";
 import { isAdmin } from "@/lib/acquisitions";
-import { useBanks, VALUERS, BANKS, getValuer, getBank, valuationFor, bankForVehicle, type Valuation, type ValuationPhoto } from "@/lib/banks";
-import { getVehicle, VEHICLES } from "@/lib/data";
-import { formatINRFull, formatINR, cn } from "@/lib/utils";
+import { useBanks, VALUERS, getValuer, valuationFor, bankForVehicle, type Valuation, type ValuationPhoto } from "@/lib/banks";
+import { getVehicle } from "@/lib/data";
+import { formatINR, cn } from "@/lib/utils";
 
 export default function ValuationPage() {
   const currentUser = useAuth((s) => s.currentUser);
@@ -161,7 +161,12 @@ function ValuationForm({ vehicleId, bankId, existing, onSave, onApprove }: {
   vehicleId: string;
   bankId?: string;
   existing?: Valuation;
-  onSave: (p: any) => void;
+  onSave: (
+    p: Omit<Valuation, "id" | "vehicleId" | "inspectedAt" | "photos" | "status"> & {
+      photos?: ValuationPhoto[];
+      status?: Valuation["status"];
+    }
+  ) => void;
   onApprove: () => void;
 }) {
   const v = getVehicle(vehicleId);

@@ -17,7 +17,7 @@ export function toCSV<T>(
   const body = rows
     .map((r) =>
       columns
-        .map((c) => escape(c.format ? c.format(r) : (r as any)[c.key]))
+        .map((c) => escape(c.format ? c.format(r) : (r as Record<string, unknown>)[c.key as string]))
         .join(",")
     )
     .join("\n");

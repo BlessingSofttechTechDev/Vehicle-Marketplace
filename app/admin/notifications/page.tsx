@@ -10,7 +10,7 @@ import { useCollections } from "@/lib/collections";
 import { useRefurb } from "@/lib/refurb";
 import { useAgents } from "@/lib/agents";
 import { useSales } from "@/lib/sales";
-import { buildAlerts, useNotifications, type AlertItem, type AlertSeverity } from "@/lib/notifications";
+import { buildAlerts, useNotifications, type AlertItem } from "@/lib/notifications";
 import { cn } from "@/lib/utils";
 
 export default function NotificationsPage() {

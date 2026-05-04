@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ShieldAlert, Gavel, Phone, Check, X } from "lucide-react";
+import { ArrowLeft, ShieldAlert, Gavel, Phone, X } from "lucide-react";
 import { Nav } from "@/components/nav";
 import { useAuth } from "@/lib/auth";
 import { isAdmin } from "@/lib/acquisitions";
@@ -9,7 +9,6 @@ import {
   useCollections,
   activeSettlement,
   seizureFor,
-  type Borrower,
   type Settlement,
   type Seizure,
 } from "@/lib/collections";

@@ -174,7 +174,7 @@ function mapHeader(header: string): string | null {
   return null;
 }
 
-export function normalizeSheet(rows: any[][]): ParsedRow[] {
+export function normalizeSheet(rows: unknown[][]): ParsedRow[] {
   if (!rows.length) return [];
   const headers = rows[0].map((h) => (h == null ? "" : String(h)));
   const fieldKeys = headers.map(mapHeader);
@@ -188,7 +188,9 @@ export function normalizeSheet(rows: any[][]): ParsedRow[] {
       if (!key) continue;
       const v = row[c];
       if (v == null || v === "") continue;
-      o[key] = typeof v === "string" ? v.trim() : v;
+      if (typeof v === "string") o[key] = v.trim();
+      else if (typeof v === "number" || typeof v === "boolean") o[key] = v;
+      else o[key] = String(v);
     }
     out.push(o);
   }

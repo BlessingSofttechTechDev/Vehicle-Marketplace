@@ -106,7 +106,6 @@ export default function AdminLeadsPage() {
 }
 
 function Column({ status, leads, onAssign }: { status: LeadStatus; leads: Lead[]; onAssign: (leadId: string, repId: string) => void }) {
-  const accent = status === "won" ? "signal-sage" : status === "lost" ? "signal-red" : "amber";
   return (
     <div className="border border-ink-500 bg-ink-800">
       <div className="flex items-center justify-between border-b border-ink-500 px-4 py-3">

@@ -1,10 +1,10 @@
 "use client";
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import { type StockIntake, type Valuation, valuationFor, getBank } from "./banks";
+import { type StockIntake, type Valuation, valuationFor } from "./banks";
 import { type Settlement, type Borrower } from "./collections";
 import { type RepairOrder } from "./refurb";
-import { type Allotment, type AllotmentLine } from "./agents";
+import { type Allotment } from "./agents";
 import { type Lead } from "./sales";
 
 export type AlertSeverity = "info" | "warn" | "urgent";

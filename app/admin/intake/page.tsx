@@ -12,7 +12,7 @@ import {
   vehiclesForBank,
 } from "@/lib/banks";
 import { YARDS } from "@/lib/yards";
-import { VEHICLES, getVehicle } from "@/lib/data";
+import { VEHICLES } from "@/lib/data";
 import { formatINR, cn } from "@/lib/utils";
 
 export default function IntakePage() {

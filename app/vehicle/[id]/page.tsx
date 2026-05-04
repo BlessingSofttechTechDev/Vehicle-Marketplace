@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth";
 import { useBanks, valuationFor, bankForVehicle, getValuer } from "@/lib/banks";
 import { useRefurb } from "@/lib/refurb";
 import { useDocuments, docsForVehicle, DOC_LABELS } from "@/lib/documents";
-import { useSales, type Lead } from "@/lib/sales";
+import { useSales } from "@/lib/sales";
 import { formatINR, formatINRFull, formatKm, cn } from "@/lib/utils";
 
 export default function VehiclePage({

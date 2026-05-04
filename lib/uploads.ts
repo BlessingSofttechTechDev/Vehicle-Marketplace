@@ -96,8 +96,8 @@ export const useUploads = create<UploadsStore>((set, get) => ({
         loaded: true,
         loading: false,
       });
-    } catch (e: any) {
-      set({ loading: false, error: e?.message ?? "Failed to load data" });
+    } catch (e: unknown) {
+      set({ loading: false, error: e instanceof Error ? e.message : "Failed to load data" });
     }
   },
 
@@ -113,8 +113,8 @@ export const useUploads = create<UploadsStore>((set, get) => ({
         loaded: true,
         loading: false,
       });
-    } catch (e: any) {
-      set({ loading: false, error: e?.message ?? "Failed to refresh" });
+    } catch (e: unknown) {
+      set({ loading: false, error: e instanceof Error ? e.message : "Failed to refresh" });
     }
   },
 

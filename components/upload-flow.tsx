@@ -84,8 +84,8 @@ export function UploadFlow({
       setSelectedCompanyId(c.id);
       setStep("file");
       setError(null);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save company.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to save company.");
     } finally {
       setBusy(false);
     }
@@ -99,7 +99,7 @@ export function UploadFlow({
       const wb = XLSX.read(buf, { type: "array" });
       const sheetName = wb.SheetNames[0];
       const sheet = wb.Sheets[sheetName];
-      const aoa = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: "" });
+      const aoa = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false, defval: "" }) as unknown[][];
       const normalized = normalizeSheet(aoa);
       if (!normalized.length) {
         setError("No rows detected. Check that the first row contains headers.");
@@ -107,8 +107,8 @@ export function UploadFlow({
       }
       setRows(normalized);
       setStep("preview");
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to read file.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to read file.");
     }
   };
 
@@ -120,8 +120,8 @@ export function UploadFlow({
       setBatchId(result.batch.id);
       setStep("done");
       onComplete?.(result.batch.id);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to ingest batch.");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to ingest batch.");
     } finally {
       setBusy(false);
     }
