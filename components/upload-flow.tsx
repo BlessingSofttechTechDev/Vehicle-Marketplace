@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Upload, X, Building2, Plus, FileSpreadsheet, Check, AlertTriangle, Info } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -54,6 +54,12 @@ export function UploadFlow({
     [validations, skipFlagged]
   );
   const acceptedCount = rows.length - skipIndexes.length;
+
+  const validationByIndex = useMemo(() => {
+    const m = new Map<number, RowValidation>();
+    validations.forEach((v) => m.set(v.index, v));
+    return m;
+  }, [validations]);
 
   const reset = () => {
     setStep("company");
@@ -175,12 +181,6 @@ export function UploadFlow({
     acc[cat] = (acc[cat] ?? 0) + 1;
     return acc;
   }, {});
-
-  const validationByIndex = useMemo(() => {
-    const m = new Map<number, RowValidation>();
-    validations.forEach((v) => m.set(v.index, v));
-    return m;
-  }, [validations]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
