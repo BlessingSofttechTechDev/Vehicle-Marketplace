@@ -13,6 +13,8 @@ export const companies = pgTable("companies", {
   name: text("name").notNull(),
   shortName: text("short_name").notNull(),
   contactEmail: text("contact_email"),
+  gstin: text("gstin"),
+  address: text("address"),
   isExisting: boolean("is_existing").notNull().default(false),
   addedAt: bigint("added_at", { mode: "number" }).notNull(),
 });
@@ -59,6 +61,9 @@ export const bankAssets = pgTable("bank_assets", {
   pricing: jsonb("pricing"),
   listed: boolean("listed").notNull().default(false),
   listedVehicleId: text("listed_vehicle_id"),
+
+  status: text("status").notNull().default("uploaded"),
+  rejectedReason: text("rejected_reason"),
 });
 
 export const listings = pgTable("listings", {

@@ -179,52 +179,64 @@ html {
 
 /* ============================================================
    Admin dashboard — light theme override
-   Scoped under .admin-light so the rest of the app stays dark.
+   Single neutral surface (white). Structure comes from borders,
+   not from layered background tints. One accent (amber) only.
    ============================================================ */
 .admin-light {
-  background-color: #FAF7F1;
-  color: #1A1A1A;
+  background-color: #FFFFFF;
+  color: #18181B;
 }
 
-/* Surfaces */
-.admin-light .bg-ink-900 { background-color: #FAF7F1; }
+/* Surfaces — page & cards share the same white;
+   borders define the panels. Hover/secondary use a soft neutral. */
+.admin-light .bg-ink-900 { background-color: #FFFFFF; }
 .admin-light .bg-ink-800 { background-color: #FFFFFF; }
-.admin-light .bg-ink-700 { background-color: #F4F1EB; }
-.admin-light .bg-ink-600 { background-color: #E8E3D9; }
-.admin-light .bg-ink-500 { background-color: #E8E3D9; }
-.admin-light .bg-ink-400 { background-color: #C9C3B5; }
-.admin-light .bg-ink-300 { background-color: #8A8680; }
+.admin-light .bg-ink-700 { background-color: #F4F4F5; }
+.admin-light .bg-ink-600 { background-color: #E4E4E7; }
+.admin-light .bg-ink-500 { background-color: #E4E4E7; }
+.admin-light .bg-ink-400 { background-color: #A1A1AA; }
+.admin-light .bg-ink-300 { background-color: #71717A; }
 
 /* Translucent surfaces */
-.admin-light .bg-ink-900\/80 { background-color: rgba(255, 255, 255, 0.85); }
-.admin-light .bg-ink-900\/50 { background-color: rgba(244, 241, 235, 0.6); }
-.admin-light .bg-ink-900\/40 { background-color: rgba(244, 241, 235, 0.5); }
+.admin-light .bg-ink-900\/80 { background-color: rgba(255, 255, 255, 0.92); }
+.admin-light .bg-ink-900\/50 { background-color: rgba(244, 244, 245, 0.7); }
+.admin-light .bg-ink-900\/40 { background-color: rgba(244, 244, 245, 0.55); }
 
 /* Hover surfaces */
-.admin-light .hover\:bg-ink-700:hover { background-color: #F4F1EB; }
-.admin-light .hover\:bg-ink-900\/40:hover { background-color: rgba(244, 241, 235, 0.5); }
-.admin-light .hover\:bg-ink-900\/50:hover { background-color: rgba(244, 241, 235, 0.6); }
+.admin-light .hover\:bg-ink-700:hover { background-color: #F4F4F5; }
+.admin-light .hover\:bg-ink-900\/40:hover { background-color: rgba(244, 244, 245, 0.55); }
+.admin-light .hover\:bg-ink-900\/50:hover { background-color: rgba(244, 244, 245, 0.7); }
 
-/* Borders */
-.admin-light .border-ink-500 { border-color: #E8E3D9; }
-.admin-light .border-ink-400 { border-color: #C9C3B5; }
-.admin-light .border-ink-300 { border-color: #8A8680; }
-.admin-light .hover\:border-ink-400:hover { border-color: #C9C3B5; }
+/* Borders — solid neutral, more visible so panels read clearly */
+.admin-light .border-ink-500 { border-color: #D4D4D8; }
+.admin-light .border-ink-400 { border-color: #A1A1AA; }
+.admin-light .border-ink-300 { border-color: #71717A; }
+.admin-light .hover\:border-ink-400:hover { border-color: #71717A; }
 
-/* Text — invert the bone scale onto a light bg */
-.admin-light .text-bone-100 { color: #0A0A0A; }
-.admin-light .text-bone-200 { color: #1A1A1A; }
-.admin-light .text-bone-300 { color: #2A2A2A; }
-.admin-light .text-bone-400 { color: #5C5954; }
-.admin-light .text-bone-500 { color: #8A8680; }
-.admin-light .hover\:text-bone-100:hover { color: #0A0A0A; }
-.admin-light .placeholder\:text-bone-500::placeholder { color: #8A8680; }
+/* Text — clean neutral scale */
+.admin-light .text-bone-100 { color: #09090B; }
+.admin-light .text-bone-200 { color: #18181B; }
+.admin-light .text-bone-300 { color: #27272A; }
+.admin-light .text-bone-400 { color: #52525B; }
+.admin-light .text-bone-500 { color: #71717A; }
+.admin-light .hover\:text-bone-100:hover { color: #09090B; }
+.admin-light .placeholder\:text-bone-500::placeholder { color: #A1A1AA; }
 
-/* Editorial label (uses raw hex inside .label) — re-tone for light bg */
-.admin-light .label { color: #5C5954; }
-.admin-light .label-amber { color: #A87B4E; }
+/* Labels — muted neutral; amber kept as the sole accent, darkened
+   for true contrast on white (was too washed out before) */
+.admin-light .label { color: #71717A; }
+.admin-light .label-amber { color: #92400E; }
+
+/* Amber tokens — keep accent recognisable but ensure legibility */
+.admin-light .text-amber { color: #92400E; }
+.admin-light .hover\:text-amber:hover { color: #92400E; }
+.admin-light .border-amber { border-color: #B45309; }
+.admin-light .hover\:border-amber:hover { border-color: #B45309; }
+.admin-light .bg-amber { background-color: #B45309; }
+.admin-light .hover\:bg-amber-soft:hover { background-color: #92400E; }
+.admin-light .bg-amber.text-ink-900 { color: #FFFFFF; }
 
 /* Scrollbar inside admin */
-.admin-light ::-webkit-scrollbar-track { background: #F4F1EB; }
-.admin-light ::-webkit-scrollbar-thumb { background: #C9C3B5; }
-.admin-light ::-webkit-scrollbar-thumb:hover { background: #8A8680; }
+.admin-light ::-webkit-scrollbar-track { background: #F4F4F5; }
+.admin-light ::-webkit-scrollbar-thumb { background: #D4D4D8; }
+.admin-light ::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }

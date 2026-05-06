@@ -21,7 +21,13 @@ import {
   savePricingAction,
   listToMarketplaceAction,
   removeBatchAction,
+  updateAssetAction,
+  softDeleteAssetAction,
+  undoSoftDeleteAction,
+  type AssetEditablePatch,
 } from "./uploads-actions";
+
+export type { AssetEditablePatch };
 
 // Re-export shared types & helpers so existing imports from "@/lib/uploads"
 // keep working unchanged.
@@ -33,9 +39,14 @@ export {
   newGroupId,
   normalizeSheet,
   rowToAsset,
+  validateRows,
+  REQUIRED_FIELDS,
+  ASSET_STATUS_ORDER,
+  deriveAssetStatus,
 } from "./uploads-shared";
 export type {
   AssetPricing,
+  AssetStatus,
   BankAsset,
   BatchGroup,
   ConditionRating,
@@ -43,9 +54,13 @@ export type {
   InspectionStatus,
   ListedVehicle,
   ParsedRow,
+  RowIssue,
+  RowSeverity,
+  RowValidation,
   UploadBatch,
   UploadCompany,
 } from "./uploads-shared";
+
 
 interface UploadsStore {
   loaded: boolean;
@@ -65,13 +80,17 @@ interface UploadsStore {
   ingestBatch: (
     companyId: string,
     fileName: string,
-    rows: ParsedRow[]
-  ) => Promise<{ batch: UploadBatch; assets: BankAsset[] }>;
+    rows: ParsedRow[],
+    skipIndexes?: number[]
+  ) => Promise<{ batch: UploadBatch; assets: BankAsset[]; skippedCount: number }>;
   setInspectionStatus: (assetId: string, status: InspectionStatus) => Promise<void>;
   saveInspectionLog: (assetId: string, log: InspectionLog) => Promise<void>;
   savePricing: (assetId: string, pricing: AssetPricing) => Promise<void>;
   listToMarketplace: (assetId: string) => Promise<ListedVehicle | null>;
   removeBatch: (batchId: string) => Promise<void>;
+  updateAsset: (assetId: string, patch: AssetEditablePatch) => Promise<void>;
+  softDeleteAsset: (assetId: string, reason: string) => Promise<void>;
+  undoSoftDelete: (assetId: string) => Promise<void>;
 }
 
 export const useUploads = create<UploadsStore>((set, get) => ({
@@ -130,8 +149,8 @@ export const useUploads = create<UploadsStore>((set, get) => ({
     return company;
   },
 
-  ingestBatch: async (companyId, fileName, rows) => {
-    const result = await ingestBatchAction(companyId, fileName, rows);
+  ingestBatch: async (companyId, fileName, rows, skipIndexes = []) => {
+    const result = await ingestBatchAction(companyId, fileName, rows, skipIndexes);
     set((s) => ({
       batches: [result.batch, ...s.batches],
       assets: [...result.assets, ...s.assets],
@@ -179,6 +198,32 @@ export const useUploads = create<UploadsStore>((set, get) => ({
     set((s) => ({
       batches: s.batches.filter((b) => b.id !== batchId),
       assets: s.assets.filter((a) => a.batchId !== batchId),
+    }));
+  },
+
+  updateAsset: async (assetId, patch) => {
+    const updated = await updateAssetAction(assetId, patch);
+    if (!updated) return;
+    set((s) => ({
+      assets: s.assets.map((a) => (a.id === assetId ? updated : a)),
+    }));
+  },
+
+  softDeleteAsset: async (assetId, reason) => {
+    await softDeleteAssetAction(assetId, reason);
+    set((s) => ({
+      assets: s.assets.map((a) =>
+        a.id === assetId ? { ...a, status: "rejected", rejectedReason: reason || "Rejected" } : a
+      ),
+    }));
+  },
+
+  undoSoftDelete: async (assetId) => {
+    const next = await undoSoftDeleteAction(assetId);
+    set((s) => ({
+      assets: s.assets.map((a) =>
+        a.id === assetId ? { ...a, status: next, rejectedReason: undefined } : a
+      ),
     }));
   },
 }));

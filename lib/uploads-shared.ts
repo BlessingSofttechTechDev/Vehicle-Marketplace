@@ -12,11 +12,33 @@ export interface UploadCompany {
   name: string;
   shortName: string;
   contactEmail?: string;
+  gstin?: string;
+  address?: string;
   isExisting: boolean;
   addedAt: number;
 }
 
 export type InspectionStatus = "pending" | "ongoing" | "done";
+
+export type AssetStatus =
+  | "uploaded"
+  | "inspecting"
+  | "inspected"
+  | "valuated"
+  | "listed"
+  | "reserved"
+  | "sold"
+  | "rejected";
+
+export const ASSET_STATUS_ORDER: AssetStatus[] = [
+  "uploaded",
+  "inspecting",
+  "inspected",
+  "valuated",
+  "listed",
+  "reserved",
+  "sold",
+];
 
 export type ConditionRating = "good" | "needs_work" | "bad";
 
@@ -67,6 +89,9 @@ export interface BankAsset {
   pricing?: AssetPricing;
   listed: boolean;
   listedVehicleId?: string;
+
+  status: AssetStatus;
+  rejectedReason?: string;
 }
 
 export interface BatchGroup {
@@ -101,6 +126,103 @@ export interface ListedVehicle {
 
 export interface ParsedRow {
   [field: string]: string | number | boolean | undefined;
+}
+
+export type RowSeverity = "ok" | "warn" | "error";
+
+export interface RowIssue {
+  field?: string;
+  code:
+    | "missing_required"
+    | "duplicate_in_file"
+    | "duplicate_in_db";
+  message: string;
+}
+
+export interface RowValidation {
+  index: number;
+  severity: RowSeverity;
+  issues: RowIssue[];
+}
+
+export const REQUIRED_FIELDS: { key: keyof ParsedRow; label: string }[] = [
+  { key: "registrationNumber", label: "Registration #" },
+  { key: "ownerName", label: "Owner name" },
+  { key: "asset", label: "Asset" },
+];
+
+const cleanKey = (v: unknown) =>
+  String(v ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+
+export function validateRows(
+  rows: ParsedRow[],
+  existing: { registrationNumbers: Set<string>; engineNumbers: Set<string> }
+): RowValidation[] {
+  const regSeen = new Map<string, number[]>();
+  const engSeen = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const reg = cleanKey(r.registrationNumber);
+    const eng = cleanKey(r.engineNumber);
+    if (reg) (regSeen.get(reg) ?? regSeen.set(reg, []).get(reg)!).push(i);
+    if (eng) (engSeen.get(eng) ?? engSeen.set(eng, []).get(eng)!).push(i);
+  });
+
+  return rows.map((r, i) => {
+    const issues: RowIssue[] = [];
+
+    for (const f of REQUIRED_FIELDS) {
+      if (!String(r[f.key] ?? "").trim()) {
+        issues.push({
+          field: String(f.key),
+          code: "missing_required",
+          message: `${f.label} is required`,
+        });
+      }
+    }
+
+    const reg = cleanKey(r.registrationNumber);
+    if (reg && (regSeen.get(reg)?.length ?? 0) > 1) {
+      issues.push({
+        field: "registrationNumber",
+        code: "duplicate_in_file",
+        message: `Reg# ${reg} appears multiple times in this file`,
+      });
+    }
+    const eng = cleanKey(r.engineNumber);
+    if (eng && (engSeen.get(eng)?.length ?? 0) > 1) {
+      issues.push({
+        field: "engineNumber",
+        code: "duplicate_in_file",
+        message: `Engine# ${eng} appears multiple times in this file`,
+      });
+    }
+    if (reg && existing.registrationNumbers.has(reg)) {
+      issues.push({
+        field: "registrationNumber",
+        code: "duplicate_in_db",
+        message: `Reg# ${reg} already exists in another batch`,
+      });
+    }
+    if (eng && existing.engineNumbers.has(eng)) {
+      issues.push({
+        field: "engineNumber",
+        code: "duplicate_in_db",
+        message: `Engine# ${eng} already exists in another batch`,
+      });
+    }
+
+    const severity: RowSeverity = issues.some(
+      (x) => x.code === "missing_required" || x.code === "duplicate_in_file"
+    )
+      ? "error"
+      : issues.length
+      ? "warn"
+      : "ok";
+    return { index: i, severity, issues };
+  });
 }
 
 // ─── Categorization ──────────────────────────────────────────────────
@@ -244,5 +366,15 @@ export function rowToAsset(
     contactPerson: row.contactPerson ? String(row.contactPerson) : undefined,
     inspectionStatus: inspectionDone ? "done" : "pending",
     listed: false,
+    status: inspectionDone ? "inspected" : "uploaded",
   };
+}
+
+export function deriveAssetStatus(a: Pick<BankAsset, "listed" | "pricing" | "inspectionStatus" | "status">): AssetStatus {
+  if (a.status === "rejected" || a.status === "reserved" || a.status === "sold") return a.status;
+  if (a.listed) return "listed";
+  if (a.pricing && a.inspectionStatus === "done") return "valuated";
+  if (a.inspectionStatus === "done") return "inspected";
+  if (a.inspectionStatus === "ongoing") return "inspecting";
+  return "uploaded";
 }

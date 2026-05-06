@@ -1,14 +1,17 @@
 "use client";
-import { useRef, useState } from "react";
-import { Upload, X, Building2, Plus, FileSpreadsheet, Check, AlertTriangle } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Upload, X, Building2, Plus, FileSpreadsheet, Check, AlertTriangle, Info } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
   useUploads,
   normalizeSheet,
+  validateRows,
   type ParsedRow,
+  type RowValidation,
   CATEGORY_OPTIONS,
   inferCategory,
 } from "@/lib/uploads";
+import { getExistingAssetKeys } from "@/lib/uploads-actions";
 import { cn } from "@/lib/utils";
 
 type Step = "company" | "newCompany" | "file" | "preview" | "done";
@@ -29,21 +32,39 @@ export function UploadFlow({
   const [step, setStep] = useState<Step>("company");
   const [companyMode, setCompanyMode] = useState<"existing" | "new">("existing");
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
-  const [newCo, setNewCo] = useState({ name: "", shortName: "", code: "", contactEmail: "" });
+  const [newCo, setNewCo] = useState({ name: "", shortName: "", code: "", contactEmail: "", gstin: "", address: "" });
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [validations, setValidations] = useState<RowValidation[]>([]);
+  const [skipFlagged, setSkipFlagged] = useState(true);
+  const [ingestStats, setIngestStats] = useState<{ ingested: number; skipped: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchId, setBatchId] = useState("");
   const [busy, setBusy] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const errorCount = validations.filter((v) => v.severity === "error").length;
+  const warnCount = validations.filter((v) => v.severity === "warn").length;
+  const okCount = validations.filter((v) => v.severity === "ok").length;
+  const skipIndexes = useMemo(
+    () =>
+      skipFlagged
+        ? validations.filter((v) => v.severity !== "ok").map((v) => v.index)
+        : validations.filter((v) => v.severity === "error").map((v) => v.index),
+    [validations, skipFlagged]
+  );
+  const acceptedCount = rows.length - skipIndexes.length;
+
   const reset = () => {
     setStep("company");
     setCompanyMode("existing");
     setSelectedCompanyId("");
-    setNewCo({ name: "", shortName: "", code: "", contactEmail: "" });
+    setNewCo({ name: "", shortName: "", code: "", contactEmail: "", gstin: "", address: "" });
     setFileName("");
     setRows([]);
+    setValidations([]);
+    setSkipFlagged(true);
+    setIngestStats(null);
     setError(null);
     setBatchId("");
   };
@@ -80,6 +101,8 @@ export function UploadFlow({
         shortName: newCo.shortName.trim(),
         code: newCo.code.trim(),
         contactEmail: newCo.contactEmail.trim() || undefined,
+        gstin: newCo.gstin.trim() || undefined,
+        address: newCo.address.trim() || undefined,
       });
       setSelectedCompanyId(c.id);
       setStep("file");
@@ -106,6 +129,21 @@ export function UploadFlow({
         return;
       }
       setRows(normalized);
+      setBusy(true);
+      try {
+        const existing = await getExistingAssetKeys();
+        const v = validateRows(normalized, {
+          registrationNumbers: new Set(existing.registrationNumbers),
+          engineNumbers: new Set(existing.engineNumbers),
+        });
+        setValidations(v);
+      } catch {
+        setValidations(
+          validateRows(normalized, { registrationNumbers: new Set(), engineNumbers: new Set() })
+        );
+      } finally {
+        setBusy(false);
+      }
       setStep("preview");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to read file.");
@@ -114,10 +152,15 @@ export function UploadFlow({
 
   const confirmIngest = async () => {
     setError(null);
+    if (acceptedCount === 0) {
+      setError("Nothing to ingest — every row is flagged. Toggle off skipping or fix the file.");
+      return;
+    }
     setBusy(true);
     try {
-      const result = await ingestBatch(selectedCompanyId, fileName, rows);
+      const result = await ingestBatch(selectedCompanyId, fileName, rows, skipIndexes);
       setBatchId(result.batch.id);
+      setIngestStats({ ingested: result.assets.length, skipped: result.skippedCount });
       setStep("done");
       onComplete?.(result.batch.id);
     } catch (e: unknown) {
@@ -132,6 +175,12 @@ export function UploadFlow({
     acc[cat] = (acc[cat] ?? 0) + 1;
     return acc;
   }, {});
+
+  const validationByIndex = useMemo(() => {
+    const m = new Map<number, RowValidation>();
+    validations.forEach((v) => m.set(v.index, v));
+    return m;
+  }, [validations]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -160,6 +209,13 @@ export function UploadFlow({
               <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-bone-400">
                 Link this batch to an existing company or onboard a new one.
               </p>
+              <div className="mt-3 flex items-start gap-2 border border-ink-500 bg-ink-900/40 px-3 py-2 font-mono text-[10px] text-bone-400">
+                <Info className="mt-0.5 h-3 w-3 shrink-0 text-amber" strokeWidth={1.5} />
+                <span>
+                  <span className="text-bone-200">Company</span> = the selling bank/lender providing the file.
+                  Each row&apos;s <span className="text-bone-200">Owner name</span> is the original borrower — that&apos;s captured per row, not here.
+                </span>
+              </div>
               <div className="mt-6 grid gap-3 md:grid-cols-2">
                 <Tile
                   active={companyMode === "existing"}
@@ -233,6 +289,8 @@ export function UploadFlow({
                 <Field label="Short name" value={newCo.shortName} onChange={(v) => setNewCo({ ...newCo, shortName: v })} placeholder="e.g., Kotak" />
                 <Field label="Internal code" value={newCo.code} onChange={(v) => setNewCo({ ...newCo, code: v })} placeholder="e.g., BNK-KOTAK" />
                 <Field label="Contact email" value={newCo.contactEmail} onChange={(v) => setNewCo({ ...newCo, contactEmail: v })} placeholder="auto.repo@kotak.com" />
+                <Field label="GSTIN (optional)" value={newCo.gstin} onChange={(v) => setNewCo({ ...newCo, gstin: v })} placeholder="e.g., 27AAACK1234F1Z5" />
+                <Field label="Address (optional)" value={newCo.address} onChange={(v) => setNewCo({ ...newCo, address: v })} placeholder="HQ or relevant branch" />
               </div>
               <div className="mt-6 flex justify-between gap-3">
                 <button onClick={() => setStep("company")} className="border border-ink-500 px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-bone-300 hover:border-amber">
@@ -303,6 +361,13 @@ export function UploadFlow({
               <p className="mt-2 font-mono text-[11px] uppercase tracking-wider text-bone-400">
                 {rows.length} rows from {fileName}
               </p>
+
+              <div className="mt-5 grid grid-cols-3 gap-0 border border-ink-500">
+                <Stat label="OK" value={okCount} tone="sage" />
+                <Stat label="Warnings" value={warnCount} tone="amber" />
+                <Stat label="Errors" value={errorCount} tone="red" />
+              </div>
+
               <div className="mt-5 grid grid-cols-2 gap-0 border border-ink-500 md:grid-cols-3 lg:grid-cols-6">
                 {CATEGORY_OPTIONS.map((c) => (
                   <div key={c.value} className="border-b border-r border-ink-500 p-3 last:border-r-0">
@@ -314,34 +379,73 @@ export function UploadFlow({
                 ))}
               </div>
 
-              <div className="mt-5 max-h-64 overflow-auto border border-ink-500">
+              {(errorCount > 0 || warnCount > 0) && (
+                <label className="mt-5 flex cursor-pointer items-start gap-3 border border-ink-500 bg-ink-900/40 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={skipFlagged}
+                    onChange={(e) => setSkipFlagged(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <p className="font-mono text-[11px] text-bone-100">
+                      Skip flagged rows ({errorCount + warnCount})
+                    </p>
+                    <p className="mt-0.5 font-mono text-[10px] text-bone-500">
+                      Off → only errors are skipped; warnings (cross-batch dups) are still ingested.
+                    </p>
+                  </div>
+                </label>
+              )}
+
+              <div className="mt-3 flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-bone-400">
+                <Info className="h-3 w-3" strokeWidth={1.5} />
+                {acceptedCount} of {rows.length} will be ingested · {rows.length - acceptedCount} skipped
+              </div>
+
+              <div className="mt-3 max-h-72 overflow-auto border border-ink-500">
                 <table className="w-full text-left">
                   <thead className="sticky top-0 bg-ink-900">
                     <tr className="border-b border-ink-500">
+                      <Th>Status</Th>
                       <Th>Owner</Th>
                       <Th>Asset</Th>
                       <Th>Reg #</Th>
-                      <Th>HP #</Th>
-                      <Th>Location</Th>
+                      <Th>Engine #</Th>
+                      <Th>Issues</Th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0, 12).map((r, i) => (
-                      <tr key={i} className="border-b border-ink-500 last:border-b-0">
-                        <Td>{String(r.ownerName ?? "—")}</Td>
-                        <Td>{String(r.asset ?? "—")}</Td>
-                        <Td className="font-mono text-amber">{String(r.registrationNumber ?? "—")}</Td>
-                        <Td>{String(r.hpNumber ?? "—")}</Td>
-                        <Td>{String(r.location ?? "—")}</Td>
-                      </tr>
-                    ))}
+                    {rows.map((r, i) => {
+                      const v = validationByIndex.get(i);
+                      const sev = v?.severity ?? "ok";
+                      return (
+                        <tr key={i} className={cn("border-b border-ink-500 last:border-b-0 align-top", sev === "error" && "bg-signal-red/5", sev === "warn" && "bg-amber/5")}>
+                          <Td>
+                            <SeverityBadge sev={sev} />
+                          </Td>
+                          <Td>{String(r.ownerName ?? "—")}</Td>
+                          <Td>{String(r.asset ?? "—")}</Td>
+                          <Td className="font-mono text-amber">{String(r.registrationNumber ?? "—")}</Td>
+                          <Td>{String(r.engineNumber ?? "—")}</Td>
+                          <Td>
+                            {v && v.issues.length ? (
+                              <ul className="space-y-0.5">
+                                {v.issues.map((iss, k) => (
+                                  <li key={k} className={cn("text-[10px]", iss.code === "duplicate_in_db" ? "text-amber" : "text-signal-red")}>
+                                    · {iss.message}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <span className="text-bone-500">—</span>
+                            )}
+                          </Td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-                {rows.length > 12 && (
-                  <p className="border-t border-ink-500 px-3 py-2 font-mono text-[10px] text-bone-500">
-                    + {rows.length - 12} more
-                  </p>
-                )}
               </div>
 
               <div className="mt-6 flex justify-between gap-3">
@@ -350,15 +454,15 @@ export function UploadFlow({
                 </button>
                 <button
                   onClick={confirmIngest}
-                  disabled={busy}
+                  disabled={busy || acceptedCount === 0}
                   className={cn(
                     "border px-4 py-2 font-mono text-[11px] uppercase tracking-wider transition",
-                    busy
-                      ? "cursor-wait border-ink-500 bg-ink-700 text-bone-500"
+                    busy || acceptedCount === 0
+                      ? "cursor-not-allowed border-ink-500 bg-ink-700 text-bone-500"
                       : "border-amber bg-amber text-ink-900 hover:bg-amber-soft"
                   )}
                 >
-                  {busy ? "Ingesting…" : "Confirm & ingest"}
+                  {busy ? "Ingesting…" : `Ingest ${acceptedCount} ${acceptedCount === 1 ? "row" : "rows"}`}
                 </button>
               </div>
             </div>
@@ -372,7 +476,10 @@ export function UploadFlow({
               <p className="font-display text-2xl text-bone-100">Batch ingested</p>
               <p className="font-mono text-[11px] uppercase tracking-wider text-amber">{batchId}</p>
               <p className="font-mono text-[11px] text-bone-400">
-                {rows.length} assets categorised, IDs assigned, ready for inspection.
+                {ingestStats?.ingested ?? rows.length} assets categorised, IDs assigned, ready for inspection.
+                {ingestStats && ingestStats.skipped > 0 && (
+                  <span className="block text-bone-500">{ingestStats.skipped} flagged rows skipped.</span>
+                )}
               </p>
               <button
                 onClick={close}
@@ -450,4 +557,35 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children, className }: { children: React.ReactNode; className?: string }) {
   return <td className={cn("px-3 py-2 font-mono text-[11px] text-bone-100", className)}>{children}</td>;
+}
+
+function Stat({ label, value, tone }: { label: string; value: number; tone: "sage" | "amber" | "red" }) {
+  const toneCls =
+    tone === "sage"
+      ? "text-signal-sage"
+      : tone === "amber"
+      ? "text-amber"
+      : "text-signal-red";
+  return (
+    <div className="border-r border-ink-500 p-3 last:border-r-0">
+      <p className={cn("label", tone === "amber" && "label-amber")} style={{ fontSize: "9px" }}>
+        {label}
+      </p>
+      <p className={cn("mt-1 font-display text-2xl tabular", toneCls)}>{value}</p>
+    </div>
+  );
+}
+
+function SeverityBadge({ sev }: { sev: "ok" | "warn" | "error" }) {
+  const map = {
+    ok: { label: "OK", cls: "border-signal-sage/40 bg-signal-sage/10 text-signal-sage" },
+    warn: { label: "Warn", cls: "border-amber/40 bg-amber/10 text-amber" },
+    error: { label: "Error", cls: "border-signal-red/40 bg-signal-red/10 text-signal-red" },
+  } as const;
+  const m = map[sev];
+  return (
+    <span className={cn("border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider", m.cls)}>
+      {m.label}
+    </span>
+  );
 }

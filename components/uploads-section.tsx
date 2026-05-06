@@ -10,15 +10,19 @@ import {
   Sparkles,
   Image as ImageIcon,
   CheckCircle2,
+  Pencil,
+  RotateCcw,
 } from "lucide-react";
 import {
   useUploads,
   CATEGORY_OPTIONS,
   type BankAsset,
+  type AssetStatus,
   type InspectionStatus,
   type ConditionRating,
   type InspectionLog,
   type AssetPricing,
+  type AssetEditablePatch,
 } from "@/lib/uploads";
 import { formatINR, cn } from "@/lib/utils";
 import { UploadFlow } from "@/components/upload-flow";
@@ -32,11 +36,16 @@ export function UploadsSection() {
   const saveInspectionLog = useUploads((s) => s.saveInspectionLog);
   const savePricing = useUploads((s) => s.savePricing);
   const listToMarketplace = useUploads((s) => s.listToMarketplace);
+  const updateAsset = useUploads((s) => s.updateAsset);
+  const softDeleteAsset = useUploads((s) => s.softDeleteAsset);
+  const undoSoftDelete = useUploads((s) => s.undoSoftDelete);
 
   const [open, setOpen] = useState(false);
   const [openBatch, setOpenBatch] = useState<string | null>(null);
   const [inspectAsset, setInspectAsset] = useState<BankAsset | null>(null);
   const [priceAsset, setPriceAsset] = useState<BankAsset | null>(null);
+  const [editAsset, setEditAsset] = useState<BankAsset | null>(null);
+  const [deleteAsset, setDeleteAsset] = useState<BankAsset | null>(null);
 
   const totals = useMemo(() => {
     const inspected = assets.filter((a) => a.inspectionStatus === "done").length;
@@ -148,7 +157,7 @@ export function UploadsSection() {
                               <table className="w-full text-left">
                                 <thead>
                                   <tr className="border-b border-ink-500 bg-ink-900/40">
-                                    <Th>ID</Th>
+                                    <Th>ID / Status</Th>
                                     <Th>Owner</Th>
                                     <Th>Asset</Th>
                                     <Th>Reg #</Th>
@@ -171,6 +180,9 @@ export function UploadsSection() {
                                       onOpenInspect={() => setInspectAsset(a)}
                                       onOpenPrice={() => setPriceAsset(a)}
                                       onList={() => listToMarketplace(a.id)}
+                                      onEdit={() => setEditAsset(a)}
+                                      onDelete={() => setDeleteAsset(a)}
+                                      onUndoDelete={() => undoSoftDelete(a.id)}
                                     />
                                   ))}
                                 </tbody>
@@ -222,6 +234,28 @@ export function UploadsSection() {
           }}
         />
       )}
+
+      {editAsset && (
+        <EditAssetModal
+          asset={editAsset}
+          onClose={() => setEditAsset(null)}
+          onSave={async (patch) => {
+            await updateAsset(editAsset.id, patch);
+            setEditAsset(null);
+          }}
+        />
+      )}
+
+      {deleteAsset && (
+        <DeleteAssetModal
+          asset={deleteAsset}
+          onClose={() => setDeleteAsset(null)}
+          onConfirm={async (reason) => {
+            await softDeleteAsset(deleteAsset.id, reason);
+            setDeleteAsset(null);
+          }}
+        />
+      )}
     </>
   );
 }
@@ -232,17 +266,33 @@ function AssetRow({
   onOpenInspect,
   onOpenPrice,
   onList,
+  onEdit,
+  onDelete,
+  onUndoDelete,
 }: {
   asset: BankAsset;
   onSetStatus: (s: InspectionStatus) => void;
   onOpenInspect: () => void;
   onOpenPrice: () => void;
   onList: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onUndoDelete: () => void;
 }) {
+  const isRejected = asset.status === "rejected";
   return (
-    <tr className="border-b border-ink-500 last:border-b-0 align-top hover:bg-ink-900/40">
+    <tr className={cn(
+      "border-b border-ink-500 last:border-b-0 align-top hover:bg-ink-900/40",
+      isRejected && "opacity-50"
+    )}>
       <Td>
         <span className="font-mono text-[10px] text-amber">{asset.id}</span>
+        <div className="mt-1">
+          <StatusBadge status={asset.status} />
+        </div>
+        {isRejected && asset.rejectedReason && (
+          <p className="mt-1 max-w-[140px] text-[9px] text-bone-500">{asset.rejectedReason}</p>
+        )}
       </Td>
       <Td>{asset.ownerName || "—"}</Td>
       <Td>
@@ -337,10 +387,10 @@ function AssetRow({
             <button
               title="List on marketplace"
               onClick={onList}
-              disabled={!asset.pricing || asset.inspectionStatus !== "done"}
+              disabled={!asset.pricing || asset.inspectionStatus !== "done" || isRejected}
               className={cn(
                 "flex h-7 items-center gap-1 border px-2 transition",
-                asset.pricing && asset.inspectionStatus === "done"
+                asset.pricing && asset.inspectionStatus === "done" && !isRejected
                   ? "border-amber bg-amber/10 text-amber hover:bg-amber/20"
                   : "cursor-not-allowed border-ink-500 text-bone-500 opacity-50"
               )}
@@ -349,9 +399,64 @@ function AssetRow({
               <span className="font-mono text-[9px] uppercase tracking-wider">List</span>
             </button>
           )}
+          <button
+            title="Edit row"
+            onClick={onEdit}
+            disabled={isRejected}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center border transition",
+              isRejected
+                ? "cursor-not-allowed border-ink-500 text-bone-500 opacity-50"
+                : "border-ink-500 text-bone-400 hover:border-amber hover:text-amber"
+            )}
+          >
+            <Pencil className="h-3 w-3" strokeWidth={1.5} />
+          </button>
+          {isRejected ? (
+            <button
+              title="Restore row"
+              onClick={onUndoDelete}
+              className="flex h-7 w-7 items-center justify-center border border-signal-sage/40 text-signal-sage transition hover:bg-signal-sage/10"
+            >
+              <RotateCcw className="h-3 w-3" strokeWidth={1.5} />
+            </button>
+          ) : (
+            <button
+              title="Reject / soft-delete"
+              onClick={onDelete}
+              disabled={asset.listed}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center border transition",
+                asset.listed
+                  ? "cursor-not-allowed border-ink-500 text-bone-500 opacity-50"
+                  : "border-ink-500 text-bone-400 hover:border-signal-red hover:text-signal-red"
+              )}
+            >
+              <Trash2 className="h-3 w-3" strokeWidth={1.5} />
+            </button>
+          )}
         </div>
       </Td>
     </tr>
+  );
+}
+
+function StatusBadge({ status }: { status: AssetStatus }) {
+  const map: Record<AssetStatus, { label: string; cls: string }> = {
+    uploaded: { label: "Uploaded", cls: "border-ink-500 text-bone-400" },
+    inspecting: { label: "Inspecting", cls: "border-amber/40 bg-amber/5 text-amber" },
+    inspected: { label: "Inspected", cls: "border-signal-sage/40 bg-signal-sage/5 text-signal-sage" },
+    valuated: { label: "Valuated", cls: "border-amber/40 bg-amber/10 text-amber" },
+    listed: { label: "Listed", cls: "border-signal-sage/60 bg-signal-sage/10 text-signal-sage" },
+    reserved: { label: "Reserved", cls: "border-amber/60 bg-amber/15 text-amber" },
+    sold: { label: "Sold", cls: "border-bone-500/40 bg-ink-700 text-bone-300" },
+    rejected: { label: "Rejected", cls: "border-signal-red/40 bg-signal-red/10 text-signal-red" },
+  };
+  const m = map[status] ?? map.uploaded;
+  return (
+    <span className={cn("border px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider", m.cls)}>
+      {m.label}
+    </span>
   );
 }
 
@@ -585,4 +690,148 @@ function Th({ children }: { children: React.ReactNode }) {
 
 function Td({ children, className }: { children: React.ReactNode; className?: string }) {
   return <td className={cn("px-3 py-3 font-mono text-[11px] text-bone-100", className)}>{children}</td>;
+}
+
+function EditAssetModal({
+  asset,
+  onClose,
+  onSave,
+}: {
+  asset: BankAsset;
+  onClose: () => void;
+  onSave: (patch: AssetEditablePatch) => Promise<void> | void;
+}) {
+  const [form, setForm] = useState({
+    ownerName: asset.ownerName ?? "",
+    asset: asset.asset ?? "",
+    registrationNumber: asset.registrationNumber ?? "",
+    engineNumber: asset.engineNumber ?? "",
+    hpNumber: asset.hpNumber ?? "",
+    yearOfManufacture: asset.yearOfManufacture?.toString() ?? "",
+    location: asset.location ?? "",
+    state: asset.state ?? "",
+    zone: asset.zone ?? "",
+    segment: asset.segment ?? "",
+    contactPerson: asset.contactPerson ?? "",
+    photoUrl: asset.photoUrl ?? "",
+    correctlyPlaced: asset.correctlyPlaced,
+  });
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const patch: AssetEditablePatch = {
+        ownerName: form.ownerName.trim(),
+        asset: form.asset.trim(),
+        registrationNumber: form.registrationNumber.trim(),
+        engineNumber: form.engineNumber.trim(),
+        hpNumber: form.hpNumber.trim(),
+        yearOfManufacture: form.yearOfManufacture
+          ? Number(form.yearOfManufacture.match(/\d{4}/)?.[0] ?? form.yearOfManufacture)
+          : undefined,
+        location: form.location.trim(),
+        state: form.state.trim(),
+        zone: form.zone.trim(),
+        segment: form.segment.trim(),
+        contactPerson: form.contactPerson.trim(),
+        photoUrl: form.photoUrl.trim(),
+        correctlyPlaced: form.correctlyPlaced,
+      };
+      await onSave(patch);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal title={`Edit · ${asset.id}`} onClose={onClose}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Owner name" value={form.ownerName} onChange={(v) => setForm({ ...form, ownerName: v })} />
+        <Field label="Asset" value={form.asset} onChange={(v) => setForm({ ...form, asset: v })} />
+        <Field label="Registration #" value={form.registrationNumber} onChange={(v) => setForm({ ...form, registrationNumber: v })} />
+        <Field label="Engine #" value={form.engineNumber} onChange={(v) => setForm({ ...form, engineNumber: v })} />
+        <Field label="HP #" value={form.hpNumber} onChange={(v) => setForm({ ...form, hpNumber: v })} />
+        <Field label="Year of manufacture" value={form.yearOfManufacture} onChange={(v) => setForm({ ...form, yearOfManufacture: v })} placeholder="e.g., 2019" />
+        <Field label="Location" value={form.location} onChange={(v) => setForm({ ...form, location: v })} />
+        <Field label="State" value={form.state} onChange={(v) => setForm({ ...form, state: v })} />
+        <Field label="Zone" value={form.zone} onChange={(v) => setForm({ ...form, zone: v })} />
+        <Field label="Segment" value={form.segment} onChange={(v) => setForm({ ...form, segment: v })} />
+        <Field label="Contact person" value={form.contactPerson} onChange={(v) => setForm({ ...form, contactPerson: v })} />
+        <Field label="Photo URL" value={form.photoUrl} onChange={(v) => setForm({ ...form, photoUrl: v })} />
+      </div>
+      <label className="mt-4 flex items-center gap-2 font-mono text-[11px] text-bone-300">
+        <input
+          type="checkbox"
+          checked={form.correctlyPlaced}
+          onChange={(e) => setForm({ ...form, correctlyPlaced: e.target.checked })}
+        />
+        Vehicle correctly placed at location
+      </label>
+      <div className="mt-6 flex justify-end gap-3">
+        <button onClick={onClose} className="border border-ink-500 px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-bone-300 hover:border-amber">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={busy}
+          className={cn(
+            "border px-4 py-2 font-mono text-[11px] uppercase tracking-wider transition",
+            busy
+              ? "cursor-wait border-ink-500 bg-ink-700 text-bone-500"
+              : "border-amber bg-amber text-ink-900 hover:bg-amber-soft"
+          )}
+        >
+          {busy ? "Saving…" : "Save changes"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function DeleteAssetModal({
+  asset,
+  onClose,
+  onConfirm,
+}: {
+  asset: BankAsset;
+  onClose: () => void;
+  onConfirm: (reason: string) => Promise<void> | void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal title={`Reject · ${asset.id}`} onClose={onClose}>
+      <p className="font-mono text-[11px] text-bone-300">
+        This soft-deletes the row. It stays in DB with status <span className="text-signal-red">rejected</span> and can be restored.
+      </p>
+      <div className="mt-4">
+        <Field label="Reason (shown on the row)" value={reason} onChange={setReason} placeholder="e.g., duplicate of MH04 1234, paperwork mismatch" />
+      </div>
+      <div className="mt-6 flex justify-end gap-3">
+        <button onClick={onClose} className="border border-ink-500 px-4 py-2 font-mono text-[11px] uppercase tracking-wider text-bone-300 hover:border-amber">
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onConfirm(reason.trim());
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          className={cn(
+            "border px-4 py-2 font-mono text-[11px] uppercase tracking-wider transition",
+            busy
+              ? "cursor-wait border-ink-500 bg-ink-700 text-bone-500"
+              : "border-signal-red bg-signal-red/10 text-signal-red hover:bg-signal-red/20"
+          )}
+        >
+          {busy ? "Rejecting…" : "Reject row"}
+        </button>
+      </div>
+    </Modal>
+  );
 }

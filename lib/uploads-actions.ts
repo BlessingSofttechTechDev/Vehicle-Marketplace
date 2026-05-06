@@ -4,6 +4,7 @@ import { db, schema } from "./db";
 import {
   newBatchId,
   rowToAsset,
+  deriveAssetStatus,
   type ParsedRow,
   type BankAsset,
   type UploadBatch,
@@ -11,11 +12,32 @@ import {
   type InspectionStatus,
   type InspectionLog,
   type AssetPricing,
+  type AssetStatus,
   type ListedVehicle,
   type BatchGroup,
 } from "./uploads-shared";
 
 // ─── Reads ───────────────────────────────────────────────────────────
+
+export async function getExistingAssetKeys(): Promise<{
+  registrationNumbers: string[];
+  engineNumbers: string[];
+}> {
+  const rows = await db
+    .select({
+      reg: schema.bankAssets.registrationNumber,
+      eng: schema.bankAssets.engineNumber,
+    })
+    .from(schema.bankAssets);
+  const reg = new Set<string>();
+  const eng = new Set<string>();
+  for (const r of rows) {
+    if (r.reg) reg.add(r.reg.trim().toUpperCase().replace(/\s+/g, ""));
+    if (r.eng) eng.add(r.eng.trim().toUpperCase().replace(/\s+/g, ""));
+  }
+  return { registrationNumbers: Array.from(reg), engineNumbers: Array.from(eng) };
+}
+
 
 export async function getAllUploadData(): Promise<{
   companies: UploadCompany[];
@@ -44,14 +66,18 @@ export async function addCompanyAction(input: {
   name: string;
   shortName: string;
   contactEmail?: string;
+  gstin?: string;
+  address?: string;
   isExisting?: boolean;
 }): Promise<UploadCompany> {
-  const company = {
+  const company: UploadCompany = {
     id: `co-${Date.now().toString(36)}`,
     code: input.code,
     name: input.name,
     shortName: input.shortName,
     contactEmail: input.contactEmail,
+    gstin: input.gstin,
+    address: input.address,
     isExisting: input.isExisting ?? false,
     addedAt: Date.now(),
   };
@@ -61,6 +87,8 @@ export async function addCompanyAction(input: {
     name: company.name,
     shortName: company.shortName,
     contactEmail: company.contactEmail ?? null,
+    gstin: company.gstin ?? null,
+    address: company.address ?? null,
     isExisting: company.isExisting,
     addedAt: company.addedAt,
   });
@@ -70,8 +98,9 @@ export async function addCompanyAction(input: {
 export async function ingestBatchAction(
   companyId: string,
   fileName: string,
-  rows: ParsedRow[]
-): Promise<{ batch: UploadBatch; assets: BankAsset[] }> {
+  rows: ParsedRow[],
+  skipIndexes: number[] = []
+): Promise<{ batch: UploadBatch; assets: BankAsset[]; skippedCount: number }> {
   const co = (await db
     .select()
     .from(schema.companies)
@@ -86,8 +115,15 @@ export async function ingestBatchAction(
   const seq = existingForCo.length + 1;
   const batchId = newBatchId(co.shortName, seq);
 
+  const skipSet = new Set(skipIndexes);
+  const acceptedRows = rows.filter((_, i) => !skipSet.has(i));
+  const skippedCount = rows.length - acceptedRows.length;
+  if (acceptedRows.length === 0) {
+    throw new Error("No rows to ingest after skipping flagged rows");
+  }
+
   const groupCounter: Record<string, number> = {};
-  const assets: BankAsset[] = rows.map((r, i) => rowToAsset(r, batchId, i + 1, groupCounter));
+  const assets: BankAsset[] = acceptedRows.map((r, i) => rowToAsset(r, batchId, i + 1, groupCounter));
 
   const groupMap: Record<string, BatchGroup> = {};
   for (const a of assets) {
@@ -118,16 +154,18 @@ export async function ingestBatchAction(
     await db.insert(schema.bankAssets).values(assets.map(assetToRow));
   }
 
-  return { batch, assets };
+  return { batch, assets, skippedCount };
 }
 
 export async function setInspectionStatusAction(
   assetId: string,
   status: InspectionStatus
 ): Promise<void> {
+  const lifecycle: AssetStatus =
+    status === "ongoing" ? "inspecting" : status === "done" ? "inspected" : "uploaded";
   await db
     .update(schema.bankAssets)
-    .set({ inspectionStatus: status })
+    .set({ inspectionStatus: status, status: lifecycle })
     .where(eq(schema.bankAssets.id, assetId));
 }
 
@@ -137,7 +175,7 @@ export async function saveInspectionLogAction(
 ): Promise<void> {
   await db
     .update(schema.bankAssets)
-    .set({ inspectionLog: log, inspectionStatus: "done" })
+    .set({ inspectionLog: log, inspectionStatus: "done", status: "inspected" })
     .where(eq(schema.bankAssets.id, assetId));
 }
 
@@ -147,7 +185,7 @@ export async function savePricingAction(
 ): Promise<void> {
   await db
     .update(schema.bankAssets)
-    .set({ pricing })
+    .set({ pricing, status: "valuated" })
     .where(eq(schema.bankAssets.id, assetId));
 }
 
@@ -196,13 +234,94 @@ export async function listToMarketplaceAction(assetId: string): Promise<ListedVe
   });
   await db
     .update(schema.bankAssets)
-    .set({ listed: true, listedVehicleId: listedId })
+    .set({ listed: true, listedVehicleId: listedId, status: "listed" })
     .where(eq(schema.bankAssets.id, assetId));
   return listed;
 }
 
 export async function removeBatchAction(batchId: string): Promise<void> {
   await db.delete(schema.uploadBatches).where(eq(schema.uploadBatches.id, batchId));
+}
+
+export type AssetEditablePatch = Partial<
+  Pick<
+    BankAsset,
+    | "ownerName"
+    | "asset"
+    | "registrationNumber"
+    | "engineNumber"
+    | "hpNumber"
+    | "hpDate"
+    | "yearOfManufacture"
+    | "location"
+    | "state"
+    | "zone"
+    | "segment"
+    | "contactPerson"
+    | "photoUrl"
+    | "correctlyPlaced"
+  >
+>;
+
+export async function updateAssetAction(
+  assetId: string,
+  patch: AssetEditablePatch
+): Promise<BankAsset | null> {
+  const update: Partial<typeof schema.bankAssets.$inferInsert> = {};
+  if (patch.ownerName !== undefined) update.ownerName = patch.ownerName || null;
+  if (patch.asset !== undefined) update.asset = patch.asset || null;
+  if (patch.registrationNumber !== undefined) update.registrationNumber = patch.registrationNumber || null;
+  if (patch.engineNumber !== undefined) update.engineNumber = patch.engineNumber || null;
+  if (patch.hpNumber !== undefined) update.hpNumber = patch.hpNumber || null;
+  if (patch.hpDate !== undefined) update.hpDate = patch.hpDate || null;
+  if (patch.yearOfManufacture !== undefined) update.yearOfManufacture = patch.yearOfManufacture ?? null;
+  if (patch.location !== undefined) update.location = patch.location || null;
+  if (patch.state !== undefined) update.state = patch.state || null;
+  if (patch.zone !== undefined) update.zone = patch.zone || null;
+  if (patch.segment !== undefined) update.segment = patch.segment || null;
+  if (patch.contactPerson !== undefined) update.contactPerson = patch.contactPerson || null;
+  if (patch.photoUrl !== undefined) update.photoUrl = patch.photoUrl || null;
+  if (patch.correctlyPlaced !== undefined) update.correctlyPlaced = patch.correctlyPlaced;
+
+  if (Object.keys(update).length === 0) return null;
+
+  await db
+    .update(schema.bankAssets)
+    .set(update)
+    .where(eq(schema.bankAssets.id, assetId));
+
+  const r = (
+    await db.select().from(schema.bankAssets).where(eq(schema.bankAssets.id, assetId)).limit(1)
+  )[0];
+  return r ? rowToBankAsset(r) : null;
+}
+
+export async function softDeleteAssetAction(
+  assetId: string,
+  reason: string
+): Promise<void> {
+  await db
+    .update(schema.bankAssets)
+    .set({ status: "rejected", rejectedReason: reason || "Rejected" })
+    .where(eq(schema.bankAssets.id, assetId));
+}
+
+export async function undoSoftDeleteAction(assetId: string): Promise<AssetStatus> {
+  const r = (
+    await db.select().from(schema.bankAssets).where(eq(schema.bankAssets.id, assetId)).limit(1)
+  )[0];
+  if (!r) throw new Error("Asset not found");
+  const next = deriveAssetStatus({
+    listed: r.listed,
+    pricing: (r.pricing as AssetPricing | null) ?? undefined,
+    inspectionStatus: r.inspectionStatus as InspectionStatus,
+    status: "uploaded",
+  });
+  await db
+    .update(schema.bankAssets)
+    .set({ status: next, rejectedReason: null })
+    .where(eq(schema.bankAssets.id, assetId));
+  return next;
 }
 
 // ─── Row mappers ─────────────────────────────────────────────────────
@@ -214,6 +333,8 @@ function rowToCompany(r: typeof schema.companies.$inferSelect): UploadCompany {
     name: r.name,
     shortName: r.shortName,
     contactEmail: r.contactEmail ?? undefined,
+    gstin: r.gstin ?? undefined,
+    address: r.address ?? undefined,
     isExisting: r.isExisting,
     addedAt: r.addedAt,
   };
@@ -231,6 +352,13 @@ function rowToBatch(r: typeof schema.uploadBatches.$inferSelect): UploadBatch {
 }
 
 function rowToBankAsset(r: typeof schema.bankAssets.$inferSelect): BankAsset {
+  const inspectionStatus = r.inspectionStatus as InspectionStatus;
+  const pricing = (r.pricing as AssetPricing | null) ?? undefined;
+  const stored = r.status as AssetStatus;
+  const status =
+    stored === "uploaded" && (r.listed || pricing || inspectionStatus !== "pending")
+      ? deriveAssetStatus({ listed: r.listed, pricing, inspectionStatus, status: stored })
+      : stored;
   return {
     id: r.id,
     batchId: r.batchId,
@@ -253,11 +381,13 @@ function rowToBankAsset(r: typeof schema.bankAssets.$inferSelect): BankAsset {
     correctlyPlaced: r.correctlyPlaced,
     location: r.location ?? "",
     contactPerson: r.contactPerson ?? undefined,
-    inspectionStatus: r.inspectionStatus as InspectionStatus,
+    inspectionStatus,
     inspectionLog: (r.inspectionLog as InspectionLog | null) ?? undefined,
-    pricing: (r.pricing as AssetPricing | null) ?? undefined,
+    pricing,
     listed: r.listed,
     listedVehicleId: r.listedVehicleId ?? undefined,
+    status,
+    rejectedReason: r.rejectedReason ?? undefined,
   };
 }
 
@@ -305,5 +435,7 @@ function assetToRow(a: BankAsset): typeof schema.bankAssets.$inferInsert {
     pricing: a.pricing ?? null,
     listed: a.listed,
     listedVehicleId: a.listedVehicleId ?? null,
+    status: a.status,
+    rejectedReason: a.rejectedReason ?? null,
   };
 }
